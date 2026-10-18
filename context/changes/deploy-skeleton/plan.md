@@ -389,15 +389,15 @@ None. There is no data and no prior deployment. The Docker/Node deployment path 
 
 #### Automated
 
-- [x] 2.1 Typecheck passes
-- [x] 2.2 Build succeeds
-- [x] 2.3 Local Workers preview serves health JSON
-- [x] 2.4 Template welcome is gone
+- [x] 2.1 Typecheck passes — 8549778
+- [x] 2.2 Build succeeds — 8549778
+- [x] 2.3 Local Workers preview serves health JSON — 8549778
+- [x] 2.4 Template welcome is gone — 8549778
 
 #### Manual
 
-- [x] 2.5 Placeholder renders with Tailwind styling
-- [x] 2.6 Local /healthz reports development environment
+- [x] 2.5 Placeholder renders with Tailwind styling — 8549778
+- [x] 2.6 Local /healthz reports development environment — 8549778
 
 ### Phase 3: First Deploy + Account Wiring
 
