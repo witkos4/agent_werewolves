@@ -374,30 +374,30 @@ None. There is no data and no prior deployment. The Docker/Node deployment path 
 
 #### Automated
 
-- [x] 1.1 Clean install with no peer-dependency errors
-- [x] 1.2 No Node-server packages remain
-- [x] 1.3 Types generate and typecheck passes
-- [x] 1.4 Production build succeeds
-- [x] 1.5 Wrangler accepts the built Worker
+- [x] 1.1 Clean install with no peer-dependency errors — 4a6cd24
+- [x] 1.2 No Node-server packages remain — 4a6cd24
+- [x] 1.3 Types generate and typecheck passes — 4a6cd24
+- [x] 1.4 Production build succeeds — 4a6cd24
+- [x] 1.5 Wrangler accepts the built Worker — 4a6cd24
 
 #### Manual
 
-- [x] 1.6 npm run dev serves the page through the Cloudflare plugin
-- [x] 1.7 Edits hot-reload in the browser
+- [x] 1.6 npm run dev serves the page through the Cloudflare plugin — 4a6cd24
+- [x] 1.7 Edits hot-reload in the browser — 4a6cd24
 
 ### Phase 2: Placeholder Page + /healthz
 
 #### Automated
 
-- [ ] 2.1 Typecheck passes
-- [ ] 2.2 Build succeeds
-- [ ] 2.3 Local Workers preview serves health JSON
-- [ ] 2.4 Template welcome is gone
+- [x] 2.1 Typecheck passes
+- [x] 2.2 Build succeeds
+- [x] 2.3 Local Workers preview serves health JSON
+- [x] 2.4 Template welcome is gone
 
 #### Manual
 
-- [ ] 2.5 Placeholder renders with Tailwind styling
-- [ ] 2.6 Local /healthz reports development environment
+- [x] 2.5 Placeholder renders with Tailwind styling
+- [x] 2.6 Local /healthz reports development environment
 
 ### Phase 3: First Deploy + Account Wiring
 
