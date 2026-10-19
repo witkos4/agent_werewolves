@@ -244,6 +244,8 @@ Do one supervised manual deploy from the developer machine, and create the crede
 - Run `npx wrangler login` interactively (the human completes the browser step; on WSL, open the printed URL manually). Alternatively, export `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the shell.
 - Then run `npm run deploy`. Record the printed `https://agent-werewolves.<subdomain>.workers.dev` URL.
 
+**Done (2026-10-19)**: deployed from `main` at `ccb77b9` to `https://agent-werewolves.witkos4.workers.dev`, first version `4e09ffee-268e-4ae5-a5f8-16026cffbc6b`. Wrangler is logged in locally via OAuth.
+
 #### 3. Repo credentials for CI (agent)
 
 **File**: — (GitHub repo settings via `gh`)
@@ -403,14 +405,14 @@ None. There is no data and no prior deployment. The Docker/Node deployment path 
 
 #### Automated
 
-- [ ] 3.1 Live health check passes
-- [ ] 3.2 Live version matches the latest deployment
-- [ ] 3.3 CI credentials exist
+- [x] 3.1 Live health check passes
+- [x] 3.2 Live version matches the latest deployment
+- [x] 3.3 CI credentials exist
 
 #### Manual
 
 - [ ] 3.4 Production URL shows the placeholder
-- [ ] 3.5 wrangler tail shows the /healthz request
+- [x] 3.5 wrangler tail shows the /healthz request
 - [ ] 3.6 Request appears in Workers Logs
 
 ### Phase 4: CI Deploy on Merge
