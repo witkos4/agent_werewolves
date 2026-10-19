@@ -405,15 +405,15 @@ None. There is no data and no prior deployment. The Docker/Node deployment path 
 
 #### Automated
 
-- [x] 3.1 Live health check passes
-- [x] 3.2 Live version matches the latest deployment
-- [x] 3.3 CI credentials exist
+- [x] 3.1 Live health check passes — 0dbc816
+- [x] 3.2 Live version matches the latest deployment — 0dbc816
+- [x] 3.3 CI credentials exist — 0dbc816
 
 #### Manual
 
-- [x] 3.4 Production URL shows the placeholder
-- [x] 3.5 wrangler tail shows the /healthz request
-- [x] 3.6 Request appears in Workers Logs
+- [x] 3.4 Production URL shows the placeholder — 0dbc816
+- [x] 3.5 wrangler tail shows the /healthz request — 0dbc816
+- [x] 3.6 Request appears in Workers Logs — 0dbc816
 
 ### Phase 4: CI Deploy on Merge
 
