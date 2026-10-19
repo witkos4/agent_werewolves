@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npx wrangler deploy --dry-run
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: check
+    runs-on: ubuntu-latest
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run deploy
+      - name: Smoke test /healthz
+        env:
+          PROD_URL: ${{ vars.PROD_URL }}
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if body=$(curl -fsS "$PROD_URL/healthz") && echo "$body" | jq -e '.status == "ok"' > /dev/null; then
+              echo "$body" | jq .
+              exit 0
+            fi
+            echo "Attempt $attempt failed; retrying in 5s"
+            sleep 5
+          done
+          echo "::error::$PROD_URL/healthz did not return status ok"
+          exit 1
+      - name: Rollback instructions
+        if: failure()
+        run: |
+          echo "::error::Deploy or smoke test failed. Production is NOT rolled back automatically."
+          echo "A human should pick the previous good version and run:"
+          echo "  npx wrangler deployments list"
+          echo "  npx wrangler rollback <previous-version-id>"
+          echo
+          echo "Recent deployments:"
+          npx wrangler deployments list || true
