@@ -411,9 +411,9 @@ None. There is no data and no prior deployment. The Docker/Node deployment path 
 
 #### Manual
 
-- [ ] 3.4 Production URL shows the placeholder
+- [x] 3.4 Production URL shows the placeholder
 - [x] 3.5 wrangler tail shows the /healthz request
-- [ ] 3.6 Request appears in Workers Logs
+- [x] 3.6 Request appears in Workers Logs
 
 ### Phase 4: CI Deploy on Merge
 
