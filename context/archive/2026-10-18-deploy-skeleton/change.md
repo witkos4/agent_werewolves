@@ -1,10 +1,10 @@
 ---
 change_id: deploy-skeleton
 title: Deploy skeleton on Cloudflare Workers
-status: implemented
+status: archived
 created: 2026-10-18
 updated: 2026-10-19
-archived_at: null
+archived_at: 2026-10-19T20:21:22Z
 ---
 
 ## Notes

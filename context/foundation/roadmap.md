@@ -3,7 +3,7 @@ project: Agent Werewolves
 version: 1
 status: draft
 created: 2026-10-18
-updated: 2026-10-18
+updated: 2026-10-19
 prd_version: 1
 main_goal: learn
 top_blocker: time
@@ -39,7 +39,7 @@ The operator wants hands-on learning of agentic workflows across the whole build
 
 | ID | Change ID | Outcome (user can …) | Prerequisites | PRD refs | Status |
 |---|---|---|---|---|---|
-| F-01 | deploy-skeleton | (foundation) app runs on the chosen platform at a public URL, deploys on merge, and its logs are readable | — | NFR: Archive kept indefinitely (survives redeploys); infrastructure.md | in-progress |
+| F-01 | deploy-skeleton | (foundation) app runs on the chosen platform at a public URL, deploys on merge, and its logs are readable | — | NFR: Archive kept indefinitely (survives redeploys); infrastructure.md | done |
 | F-02 | game-room-turn-loop-spike | (foundation) a dummy multi-turn game room is proven to survive eviction and redeploy, broadcast live, and never re-bill a retried turn | F-01 | NFR: Games finish in bounded time; NFR: Spend never overshoots; NFR: Live feels live | proposed |
 | S-01 | access-key-gate | operator reaches the app only with the access key and can rotate it | F-01 | FR-001 | proposed |
 | S-02 | first-live-ai-game | operator starts a fixed-setup all-AI game and watches it live until one side wins, with roles revealed at the end | F-02, S-01 | US-01, FR-005, FR-006, FR-007 | proposed |
@@ -89,7 +89,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Blockers:** —
 - **Unknowns:** —
 - **Risk:** First because the scaffold still targets a different runtime. Every later slice would be written against the wrong one until this lands. The risk is copying platform docs that target an older framework major version (flagged in infrastructure.md).
-- **Status:** in-progress
+- **Status:** done
 
 ### F-02: Game-room turn-loop spike
 
@@ -285,3 +285,4 @@ Foundations below assume these are present and do NOT re-scaffold them.
 ## Milestone History
 
 ## Done
+- **F-01: (foundation) the existing scaffold runs on the platform chosen in infrastructure.md at a public URL. Merging to main deploys it automatically, and runtime logs can be read from the terminal.** — Archived 2026-10-19 → `context/archive/2026-10-18-deploy-skeleton/`. Lesson: —.
