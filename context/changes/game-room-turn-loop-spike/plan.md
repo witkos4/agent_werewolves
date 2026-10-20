@@ -399,20 +399,20 @@ This change adds the first DO migration (`v1`, `new_sqlite_classes: ["GameRoom"]
 
 #### Automated
 
-- [x] 1.1 Typecheck passes
-- [x] 1.2 Build and dry-run deploy succeed
-- [x] 1.3 Body determinism test passes
-- [x] 1.4 Chain test passes
-- [x] 1.5 Journal test passes
-- [x] 1.6 Quiet-period test passes
-- [x] 1.7 Eviction test passes
-- [x] 1.8 Failure test passes
-- [x] 1.9 End guard test passes
-- [x] 1.10 Idempotent start test passes
+- [x] 1.1 Typecheck passes — 0bcd3dc
+- [x] 1.2 Build and dry-run deploy succeed — 0bcd3dc
+- [x] 1.3 Body determinism test passes — 0bcd3dc
+- [x] 1.4 Chain test passes — 0bcd3dc
+- [x] 1.5 Journal test passes — 0bcd3dc
+- [x] 1.6 Quiet-period test passes — 0bcd3dc
+- [x] 1.7 Eviction test passes — 0bcd3dc
+- [x] 1.8 Failure test passes — 0bcd3dc
+- [x] 1.9 End guard test passes — 0bcd3dc
+- [x] 1.10 Idempotent start test passes — 0bcd3dc
 
 #### Manual
 
-- [x] 1.11 GameRoom transaction boundaries reviewed
+- [x] 1.11 GameRoom transaction boundaries reviewed — 0bcd3dc
 
 ### Phase 2: OpenRouter Client + Secret-Gated Routes
 
