@@ -11,7 +11,8 @@
     "deploy": "react-router build && wrangler deploy",
     "dev": "react-router dev",
     "preview": "react-router build && vite preview",
-    "typecheck": "npm run cf-typegen && tsc"
+    "typecheck": "npm run cf-typegen && tsc",
+    "test": "vitest run"
   },
   "dependencies": {
     "isbot": "^5.1.36",
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.64.0",
+    "@cloudflare/vitest-plugin": "^1.4.5",
     "@react-router/dev": "^8.4.0",
     "@tailwindcss/vite": "^4.2.2",
     "@types/node": "^22",
@@ -29,6 +31,7 @@
     "tailwindcss": "^4.2.2",
     "typescript": "^5.9.3",
     "vite": "^8.0.3",
+    "vitest": "^5.0.5",
     "wrangler": "^4.151.1"
   }
 }

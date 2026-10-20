@@ -2,6 +2,8 @@ import { createRequestHandler, RouterContextProvider } from "react-router";
 
 import { cloudflareContext } from "../app/cloudflare-context";
 
+export { GameRoom } from "./game-room";
+
 const requestHandler = createRequestHandler(
   () => import("virtual:react-router/server-build"),
   import.meta.env.MODE,

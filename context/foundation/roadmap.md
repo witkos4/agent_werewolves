@@ -40,7 +40,7 @@ The operator wants hands-on learning of agentic workflows across the whole build
 | ID | Change ID | Outcome (user can …) | Prerequisites | PRD refs | Status |
 |---|---|---|---|---|---|
 | F-01 | deploy-skeleton | (foundation) app runs on the chosen platform at a public URL, deploys on merge, and its logs are readable | — | NFR: Archive kept indefinitely (survives redeploys); infrastructure.md | done |
-| F-02 | game-room-turn-loop-spike | (foundation) a dummy multi-turn game room is proven to survive eviction and redeploy, broadcast live, and never re-bill a retried turn | F-01 | NFR: Games finish in bounded time; NFR: Spend never overshoots; NFR: Live feels live | proposed |
+| F-02 | game-room-turn-loop-spike | (foundation) a dummy multi-turn game room is proven to survive eviction and redeploy, broadcast live, and never re-bill a retried turn | F-01 | NFR: Games finish in bounded time; NFR: Spend never overshoots; NFR: Live feels live | in-progress |
 | S-01 | access-key-gate | operator reaches the app only with the access key and can rotate it | F-01 | FR-001 | proposed |
 | S-02 | first-live-ai-game | operator starts a fixed-setup all-AI game and watches it live until one side wins, with roles revealed at the end | F-02, S-01 | US-01, FR-005, FR-006, FR-007 | proposed |
 | S-03 | game-record-with-reasoning | operator reopens a finished game and reads the public transcript with each agent's private rationale beside it | S-02 | US-01, FR-009 | proposed |
@@ -103,7 +103,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Unknowns:**
   - Which LLM provider or gateway the spike calls (see Open Roadmap Question 3). Owner: user. Block: no.
 - **Risk:** Sequenced before the north star because a game written as one long loop fails silently in production (infrastructure.md pre-mortem). The spike spends real LLM budget before the access key gate exists, so it must not be triggerable from the public URL.
-- **Status:** proposed
+- **Status:** in-progress
 
 ## Slices
 

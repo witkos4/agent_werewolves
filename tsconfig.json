@@ -7,7 +7,12 @@
   ],
   "compilerOptions": {
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
-    "types": ["node", "vite/client", "./worker-configuration.d.ts"],
+    "types": [
+      "node",
+      "vite/client",
+      "./worker-configuration.d.ts",
+      "@cloudflare/vitest-plugin/types"
+    ],
     "target": "ES2022",
     "module": "ES2022",
     "moduleResolution": "bundler",
