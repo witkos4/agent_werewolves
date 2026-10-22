@@ -419,11 +419,11 @@ None. There is no data and no prior deployment. The Docker/Node deployment path 
 
 #### Automated
 
-- [x] 4.1 PR run passes check and skips deploy
-- [ ] 4.2 Main run succeeds end to end
-- [ ] 4.3 Production serves the merged version
+- [x] 4.1 PR run passes check and skips deploy — 46ebd58
+- [x] 4.2 Main run succeeds end to end — 3833d81
+- [x] 4.3 Production serves the merged version — 3833d81
 
 #### Manual
 
-- [ ] 4.4 Rollback drill succeeds and is reverted
-- [ ] 4.5 README reviewed for accuracy
+- [x] 4.4 Rollback drill succeeds and is reverted — 3833d81
+- [x] 4.5 README reviewed for accuracy — 3833d81
