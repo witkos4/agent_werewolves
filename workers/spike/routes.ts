@@ -20,6 +20,17 @@ export async function handleSpikeRequest(request: Request, env: Env): Promise<Re
     return startGame(request, env);
   }
 
+  // Viewer socket: unauthenticated on purpose. It spends nothing, and game
+  // ids are random UUIDs.
+  if (parts.length === 2 && parts[1] === "ws" && UUID.test(parts[0])) {
+    if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+      return new Response("Expected a WebSocket upgrade", { status: 426 });
+    }
+    // Forwarded as-is: a 101 is only reliable straight from the DO, not
+    // through a React Router loader.
+    return roomFor(env, parts[0]).fetch(request);
+  }
+
   if (parts.length === 2 && parts[1] === "turns" && request.method === "GET") {
     if (!(await hasSpikeKey(request, env))) return notFound();
     const [gameId] = parts;

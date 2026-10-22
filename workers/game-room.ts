@@ -75,6 +75,8 @@ export class GameRoom extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
+    // Answered by the runtime without waking a hibernated room.
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
     ctx.blockConcurrencyWhile(async () => {
       this.migrate();
       log("game_room_constructed", {
@@ -117,6 +119,34 @@ export class GameRoom extends DurableObject<Env> {
         .exec<TurnRow>("SELECT * FROM turns ORDER BY turn_no")
         .toArray(),
     };
+  }
+
+  /**
+   * Viewer sockets. Sends every event after `?after=<seq>` before returning,
+   * in one synchronous turn, so no live event can interleave with the
+   * backlog; later events arrive through broadcast().
+   */
+  async fetch(request: Request): Promise<Response> {
+    if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+      return new Response("Expected a WebSocket upgrade", { status: 426 });
+    }
+    if (!this.readGame()) return new Response("Not found", { status: 404 });
+
+    const after = Number(new URL(request.url).searchParams.get("after"));
+    const { 0: client, 1: server } = new WebSocketPair();
+    this.ctx.acceptWebSocket(server);
+    for (const event of this.eventsAfter(Number.isSafeInteger(after) ? after : 0)) {
+      server.send(JSON.stringify(event));
+    }
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
+    try {
+      ws.close(code, reason);
+    } catch {
+      // Already closed.
+    }
   }
 
   async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
@@ -317,6 +347,13 @@ export class GameRoom extends DurableObject<Env> {
       )
       .one();
     return toEvent(row);
+  }
+
+  private eventsAfter(seq: number): GameEvent[] {
+    return this.sql
+      .exec<EventRow>("SELECT * FROM events WHERE seq > ? ORDER BY seq", seq)
+      .toArray()
+      .map(toEvent);
   }
 
   private readGame(): GameRow | null {
