@@ -36,7 +36,8 @@ npm run preview     # serve the production build locally
 
 ## Deploy
 
-- **Automatic:** every push to `main` runs `.github/workflows/ci.yml`. It typechecks, builds, deploys, then smoke-tests `/healthz`. PRs run the same checks plus `wrangler deploy --dry-run`, without deploying.
+- **Automatic:** every push to `main` runs `.github/workflows/ci.yml`. It typechecks, runs the tests, builds, deploys, then smoke-tests `/healthz`. PRs run the same checks plus `wrangler deploy --dry-run`, without deploying.
+- **Runtime secrets:** `wrangler.jsonc` lists `OPENROUTER_API_KEY` and `SPIKE_KEY` under `secrets.required`, so a real deploy fails until both exist in production. Check with `npx wrangler secret list`; set with `npx wrangler secret put <NAME>`.
 - **Manual:** `npm run deploy` (needs `npx wrangler login` or the env vars below).
 
 ## Health
@@ -66,6 +67,24 @@ npx wrangler rollback <previous-version-id>
 ```
 
 Then check `/healthz` reports that version. To roll forward, re-run the latest `main` workflow or `npm run deploy`.
+
+**Rollback cannot cross the first Durable Object migration** (`GameRoom`, tag `v1`). Once a version with it is live, `wrangler rollback` to an older version is refused. Fix forward instead, and never remove the `GameRoom` export or its migration entry: schema changes go through the in-code `schema_version` migrations in `workers/game-room.ts`.
+
+## Spike: game-room turn loop
+
+A throwaway three-turn "story" game that proves the `GameRoom` turn loop (F-02). Every route that spends money or shows request bodies needs the `x-spike-key` header and returns 404 without it.
+
+```bash
+# Start a game (delayMs: gap between turns, 0-300000, default 30000;
+# holdMs: drill-only pause before each LLM call, 0-60000, default 0)
+curl -X POST -H "x-spike-key: $SPIKE_KEY" "$URL/api/spike/start" -d '{"delayMs":5000}'
+# {"gameId":"…","viewerUrl":"/spike/…"}
+
+# Watch it live: open $URL/spike/<gameId> in a browser (no key needed)
+
+# Read the journal: each turn's stored request body, attempts, cost, cache hit
+curl -H "x-spike-key: $SPIKE_KEY" "$URL/api/spike/<gameId>/turns"
+```
 
 ## CI secrets and variables
 
