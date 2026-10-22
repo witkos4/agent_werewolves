@@ -17,6 +17,7 @@ export default defineConfig({
     }),
   ],
   test: {
+    setupFiles: ["./test/setup.ts"],
     // Hibernatable WebSockets with Durable Objects need a single shared worker.
     maxWorkers: 1,
     isolate: false,

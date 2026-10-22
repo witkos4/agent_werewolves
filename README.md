@@ -12,9 +12,17 @@ Requires Node `>=22.22.0`.
 
 ```bash
 npm install
-echo "APP_ENV=development" > .dev.vars   # local-only vars, gitignored
-npm run dev                              # http://localhost:5173, runs in the Workers runtime
+npm run dev   # http://localhost:5173, runs in the Workers runtime
+npm test      # Workers-runtime tests; never call the network
 ```
+
+Local vars and secrets go in `.dev.vars` (gitignored):
+
+| Name | Purpose |
+| --- | --- |
+| `APP_ENV` | `development` |
+| `OPENROUTER_API_KEY` | OpenRouter key the game room calls models with |
+| `SPIKE_KEY` | Value of the `x-spike-key` header that unlocks `/api/spike/*` (any random string) |
 
 ## Typecheck and build
 

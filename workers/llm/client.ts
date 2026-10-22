@@ -1,3 +1,5 @@
+import { callOpenRouter } from "./openrouter";
+
 export type LlmRequest = {
   apiKey: string;
   /** Exact JSON body, sent unchanged so retries hit the gateway cache. */
@@ -23,14 +25,7 @@ export type LlmResult =
 
 export type LlmCall = (request: LlmRequest) => Promise<LlmResult>;
 
-const notConfigured: LlmCall = async () => ({
-  ok: false,
-  retryable: false,
-  status: null,
-  reason: "llm_not_configured",
-});
-
-let impl: LlmCall = notConfigured;
+let impl: LlmCall = callOpenRouter;
 
 /** The single seam GameRoom uses for LLM calls. */
 export function callLlm(request: LlmRequest): Promise<LlmResult> {

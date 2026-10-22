@@ -1,6 +1,7 @@
 import { createRequestHandler, RouterContextProvider } from "react-router";
 
 import { cloudflareContext } from "../app/cloudflare-context";
+import { handleSpikeRequest } from "./spike/routes";
 
 export { GameRoom } from "./game-room";
 
@@ -10,7 +11,10 @@ const requestHandler = createRequestHandler(
 );
 
 export default {
-  fetch(request, env, ctx) {
+  async fetch(request, env, ctx) {
+    const spike = await handleSpikeRequest(request, env);
+    if (spike) return spike;
+
     const context = new RouterContextProvider();
     context.set(cloudflareContext, { env, ctx });
     return requestHandler(request, context);
