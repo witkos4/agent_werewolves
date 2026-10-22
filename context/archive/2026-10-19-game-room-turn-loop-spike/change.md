@@ -1,10 +1,10 @@
 ---
 change_id: game-room-turn-loop-spike
 title: Game-room turn-loop spike
-status: implementing
+status: archived
 created: 2026-10-19
 updated: 2026-10-22
-archived_at: null
+archived_at: 2026-10-22T21:00:00Z
 ---
 
 ## Notes

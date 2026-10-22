@@ -446,15 +446,15 @@ This change adds the first DO migration (`v1`, `new_sqlite_classes: ["GameRoom"]
 
 #### Automated
 
-- [ ] 4.1 PR run passes check and skips deploy
-- [ ] 4.2 Main run succeeds end to end
-- [ ] 4.3 Production guards return 404 without key
+- [x] 4.1 PR run passes check and skips deploy — see spike-findings.md
+- [x] 4.2 Main run succeeds end to end — see spike-findings.md
+- [x] 4.3 Production guards return 404 without key — see spike-findings.md
 
 #### Manual
 
-- [ ] 4.4 Eviction drill passes
-- [ ] 4.5 Redeploy-between-turns drill passes
-- [ ] 4.6 Redeploy-mid-call drill passes
-- [ ] 4.7 Re-bill drill passes
-- [ ] 4.8 Viewer drill passes
-- [ ] 4.9 Findings and README reviewed
+- [x] 4.4 Eviction drill passes — see spike-findings.md
+- [x] 4.5 Redeploy-between-turns drill passes — see spike-findings.md
+- [ ] 4.6 Redeploy-mid-call drill passes — not reproducible: deploys let in-flight alarms finish; see spike-findings.md
+- [ ] 4.7 Re-bill drill passes — inconclusive: laptop resend misses Worker cache entries; see spike-findings.md
+- [x] 4.8 Viewer drill passes — see spike-findings.md
+- [x] 4.9 Findings and README reviewed — accepted by operator 2026-10-22 without line-by-line review; 4.7 deferred to S-07
