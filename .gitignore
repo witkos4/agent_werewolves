@@ -11,3 +11,6 @@
 /.wrangler/
 .dev.vars*
 worker-configuration.d.ts
+
+# Local notes
+spike-commands.md
