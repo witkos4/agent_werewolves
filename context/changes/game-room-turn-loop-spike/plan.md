@@ -432,15 +432,15 @@ This change adds the first DO migration (`v1`, `new_sqlite_classes: ["GameRoom"]
 
 #### Automated
 
-- [ ] 3.1 Typecheck and build pass
-- [ ] 3.2 Replay test passes
-- [ ] 3.3 Reconnect test passes
-- [ ] 3.4 Non-upgrade request returns 426
+- [x] 3.1 Typecheck and build pass — 05434a8
+- [x] 3.2 Replay test passes — 05434a8
+- [x] 3.3 Reconnect test passes — 05434a8
+- [x] 3.4 Non-upgrade request returns 426 — 05434a8
 
 #### Manual
 
-- [ ] 3.5 Late viewer sees backlog then live turns
-- [ ] 3.6 Viewer reconnects across dev-server restart
+- [x] 3.5 Late viewer sees backlog then live turns — 05434a8
+- [x] 3.6 Viewer reconnects across dev-server restart — 05434a8
 
 ### Phase 4: Production Proof
 
