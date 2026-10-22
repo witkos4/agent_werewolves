@@ -418,15 +418,15 @@ This change adds the first DO migration (`v1`, `new_sqlite_classes: ["GameRoom"]
 
 #### Automated
 
-- [ ] 2.1 Typecheck passes
-- [ ] 2.2 Client tests pass
-- [ ] 2.3 Route tests pass
-- [ ] 2.4 Phase 1 tests still pass
+- [x] 2.1 Typecheck passes — bc582c2
+- [x] 2.2 Client tests pass — bc582c2
+- [x] 2.3 Route tests pass — bc582c2
+- [x] 2.4 Phase 1 tests still pass — bc582c2
 
 #### Manual
 
-- [ ] 2.5 Local real-LLM games complete 3 chained turns with no cross-game cache hits
-- [ ] 2.6 Re-sent request returns a free cache HIT
+- [x] 2.5 Local real-LLM games complete 3 chained turns with no cross-game cache hits — bc582c2
+- [x] 2.6 Re-sent request returns a free cache HIT — bc582c2
 
 ### Phase 3: Live Broadcast + Viewer
 
