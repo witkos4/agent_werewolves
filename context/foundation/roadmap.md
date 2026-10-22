@@ -3,7 +3,7 @@ project: Agent Werewolves
 version: 1
 status: draft
 created: 2026-10-18
-updated: 2026-10-19
+updated: 2026-10-22
 prd_version: 1
 main_goal: learn
 top_blocker: time
@@ -40,7 +40,7 @@ The operator wants hands-on learning of agentic workflows across the whole build
 | ID | Change ID | Outcome (user can …) | Prerequisites | PRD refs | Status |
 |---|---|---|---|---|---|
 | F-01 | deploy-skeleton | (foundation) app runs on the chosen platform at a public URL, deploys on merge, and its logs are readable | — | NFR: Archive kept indefinitely (survives redeploys); infrastructure.md | done |
-| F-02 | game-room-turn-loop-spike | (foundation) a dummy multi-turn game room is proven to survive eviction and redeploy, broadcast live, and never re-bill a retried turn | F-01 | NFR: Games finish in bounded time; NFR: Spend never overshoots; NFR: Live feels live | in-progress |
+| F-02 | game-room-turn-loop-spike | (foundation) a dummy multi-turn game room is proven to survive eviction and redeploy, broadcast live, and never re-bill a retried turn | F-01 | NFR: Games finish in bounded time; NFR: Spend never overshoots; NFR: Live feels live | done |
 | S-01 | access-key-gate | operator reaches the app only with the access key and can rotate it | F-01 | FR-001 | proposed |
 | S-02 | first-live-ai-game | operator starts a fixed-setup all-AI game and watches it live until one side wins, with roles revealed at the end | F-02, S-01 | US-01, FR-005, FR-006, FR-007 | proposed |
 | S-03 | game-record-with-reasoning | operator reopens a finished game and reads the public transcript with each agent's private rationale beside it | S-02 | US-01, FR-009 | proposed |
@@ -103,7 +103,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Unknowns:**
   - Which LLM provider or gateway the spike calls (see Open Roadmap Question 3). Owner: user. Block: no.
 - **Risk:** Sequenced before the north star because a game written as one long loop fails silently in production (infrastructure.md pre-mortem). The spike spends real LLM budget before the access key gate exists, so it must not be triggerable from the public URL.
-- **Status:** in-progress
+- **Status:** done
 
 ## Slices
 
@@ -193,6 +193,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Blockers:** —
 - **Unknowns:**
   - Where per-model pricing for the estimate comes from (provider price list vs. a maintained table). Owner: user. Block: no.
+  - Whether a turn retried from inside `GameRoom` gets a free OpenRouter cache HIT in production. F-02 could not prove it: a laptop resend misses entries the Worker wrote, likely because the cache is per edge location (`context/archive/2026-10-19-game-room-turn-loop-spike/spike-findings.md`, 4.7). Prove it with an in-DO resend drill before relying on "spend never overshoots". Owner: user. Block: yes.
 - **Risk:** Must land before batches (S-09) multiply spend. Overshoot is allowed by at most one agent turn, so the check has to run before every LLM call, not after.
 - **Status:** proposed
 
@@ -286,3 +287,4 @@ Foundations below assume these are present and do NOT re-scaffold them.
 
 ## Done
 - **F-01: (foundation) the existing scaffold runs on the platform chosen in infrastructure.md at a public URL. Merging to main deploys it automatically, and runtime logs can be read from the terminal.** — Archived 2026-10-19 → `context/archive/2026-10-18-deploy-skeleton/`. Lesson: —.
+- **F-02: (foundation) a throwaway three-turn game room proves turns chain across evictions and redeploys, broadcast live, and are billed once.** — Archived 2026-10-22 → `context/archive/2026-10-19-game-room-turn-loop-spike/`. Lesson: deploys let an in-flight DO alarm finish on old code, so a redeploy cannot force a retry; the no-re-bill proof moved to S-07.
