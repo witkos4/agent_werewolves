@@ -321,7 +321,7 @@ There's no data migration, and no Durable Object migration, so `wrangler rollbac
 - [x] 3.1 CI `main` run passes end to end, including unauthenticated `/healthz` smoke test
 - [x] 3.2 Production refuses anonymous spend (404)
 - [x] 3.3 Production redirects anonymous pages (302 to `/login`)
-- [ ] 3.4 Production secrets are exactly `ACCESS_KEY` and `OPENROUTER_API_KEY`
+- [x] 3.4 Production secrets are exactly `ACCESS_KEY` and `OPENROUTER_API_KEY`
 
 #### Manual
 

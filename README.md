@@ -52,7 +52,7 @@ The whole app sits behind one access key (FR-001). Only `/login`, `/healthz` and
   openssl rand -base64 32 | tr -d '\n' | npx wrangler secret put ACCESS_KEY
   ```
 
-  This deploys a new version. Within seconds, old cookies and old bearer keys stop working and the new key signs in. Viewer sockets opened with the old key survive the deploy (they hibernate), so each game room closes them the next time it wakes, at its next turn at the latest.
+  This deploys a new version. Within seconds, old cookies and old bearer keys stop working and the new key signs in. A running game room can stay on the pre-rotation version for minutes, so viewer sockets don't drop with the deploy: each room closes any socket older than 2 minutes before its next broadcast, and the viewer reconnects through the gate. An old-key viewer therefore receives at most 2 more minutes of events.
 - **Fail-closed:** if `ACCESS_KEY` is unset or under 32 characters (after trimming), the app is fully locked, `/login` says the gate is misconfigured, and `npx wrangler tail` shows `access_gate_misconfigured` lines.
 
 ## Health

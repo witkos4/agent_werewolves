@@ -2,7 +2,13 @@ import { evictDurableObject, runDurableObjectAlarm, runInDurableObject, SELF } f
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { type GameEvent, type GameRoom, KEY_ROTATED_CLOSE_CODE, tuning } from "../workers/game-room";
+import {
+  type GameEvent,
+  type GameRoom,
+  KEY_ROTATED_CLOSE_CODE,
+  SOCKET_EXPIRED_CLOSE_CODE,
+  tuning,
+} from "../workers/game-room";
 import { setLlmCall } from "../workers/llm/client";
 
 type Stub = DurableObjectStub<GameRoom>;
@@ -103,7 +109,7 @@ describe("viewer WebSocket", () => {
     await vi.waitFor(() => expect(seqs(received)).toEqual([1]));
     // Stand in for a socket opened before `wrangler secret put ACCESS_KEY`.
     await runInDurableObject(stub, (_room, state) => {
-      state.getWebSockets()[0].serializeAttachment({ keyFingerprint: "previous-key" });
+      state.getWebSockets()[0].serializeAttachment({ keyFingerprint: "previous-key", openedAt: Date.now() });
     });
 
     await evictDurableObject(stub);
@@ -123,6 +129,22 @@ describe("viewer WebSocket", () => {
     await runDurableObjectAlarm(stub); // turn 1 → seq 2, withheld
     expect((await closed).code).toBe(KEY_ROTATED_CLOSE_CODE);
     expect(seqs(received)).toEqual([1]);
+  });
+
+  it("closes a socket past its maximum age before broadcasting; the viewer resumes on reconnect", async () => {
+    const { gameId, stub } = await startGame();
+    const first = await connect(gameId, 0);
+    await vi.waitFor(() => expect(seqs(first.received)).toEqual([1]));
+
+    tuning.maxSocketAgeMs = 0;
+    await runDurableObjectAlarm(stub); // turn 1 → seq 2, withheld from the expired socket
+    expect((await first.closed).code).toBe(SOCKET_EXPIRED_CLOSE_CODE);
+    expect(seqs(first.received)).toEqual([1]);
+
+    tuning.maxSocketAgeMs = HOUR;
+    const second = await connect(gameId, 1); // Back through the gate, replaying from seq 1.
+    await vi.waitFor(() => expect(seqs(second.received)).toEqual([2]));
+    second.ws.close();
   });
 
   it("returns 426 to a non-upgrade request", async () => {
