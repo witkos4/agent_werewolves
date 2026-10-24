@@ -11,11 +11,15 @@ export default defineConfig({
       miniflare: {
         bindings: {
           OPENROUTER_API_KEY: "test-openrouter-key",
-          SPIKE_KEY: "test-spike-key",
+          ACCESS_KEY: "test-access-key-0123456789abcdefghij",
         },
       },
     }),
   ],
+  // Route modules import `~/…` (tsconfig paths), as in vite.config.ts.
+  resolve: {
+    tsconfigPaths: true,
+  },
   test: {
     setupFiles: ["./test/setup.ts"],
     // Hibernatable WebSockets with Durable Objects need a single shared worker.

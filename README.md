@@ -22,7 +22,7 @@ Local vars and secrets go in `.dev.vars` (gitignored):
 | --- | --- |
 | `APP_ENV` | `development` |
 | `OPENROUTER_API_KEY` | OpenRouter key the game room calls models with |
-| `SPIKE_KEY` | Value of the `x-spike-key` header that unlocks `/api/spike/*` (any random string) |
+| `ACCESS_KEY` | The access key that unlocks the app, at least 32 characters (e.g. `openssl rand -base64 32`) |
 
 ## Typecheck and build
 
@@ -37,8 +37,23 @@ npm run preview     # serve the production build locally
 ## Deploy
 
 - **Automatic:** every push to `main` runs `.github/workflows/ci.yml`. It typechecks, runs the tests, builds, deploys, then smoke-tests `/healthz`. PRs run the same checks plus `wrangler deploy --dry-run`, without deploying.
-- **Runtime secrets:** `wrangler.jsonc` lists `OPENROUTER_API_KEY` and `SPIKE_KEY` under `secrets.required`, so a real deploy fails until both exist in production. Check with `npx wrangler secret list`; set with `npx wrangler secret put <NAME>`.
+- **Runtime secrets:** `wrangler.jsonc` lists `OPENROUTER_API_KEY` and `ACCESS_KEY` under `secrets.required`, so a real deploy fails until both exist in production. Check with `npx wrangler secret list`; set with `npx wrangler secret put <NAME>`.
 - **Manual:** `npm run deploy` (needs `npx wrangler login` or the env vars below).
+
+## Access key
+
+The whole app sits behind one access key (FR-001). Only `/login`, `/healthz` and static assets are public.
+
+- **Browsers:** sign in at `/login`. The session cookie lasts 30 days.
+- **Scripts:** send `Authorization: Bearer $ACCESS_KEY`. Without a valid credential, pages redirect to `/login` and everything else gets a bare 404.
+- **Rotate** (production needs human approval):
+
+  ```bash
+  openssl rand -base64 32 | tr -d '\n' | npx wrangler secret put ACCESS_KEY
+  ```
+
+  This deploys a new version. Within seconds, old cookies, old bearer keys and open viewer sockets stop working, and the new key signs in.
+- **Fail-closed:** if `ACCESS_KEY` is unset or under 32 characters (after trimming), the app is fully locked, `/login` says the gate is misconfigured, and `npx wrangler tail` shows `access_gate_misconfigured` lines.
 
 ## Health
 
@@ -72,18 +87,18 @@ Then check `/healthz` reports that version. To roll forward, re-run the latest `
 
 ## Spike: game-room turn loop
 
-A throwaway three-turn "story" game that proves the `GameRoom` turn loop (F-02). Every route that spends money or shows request bodies needs the `x-spike-key` header and returns 404 without it.
+A throwaway three-turn "story" game that proves the `GameRoom` turn loop (F-02). Like everything else, it sits behind the access key.
 
 ```bash
 # Start a game (delayMs: gap between turns, 0-300000, default 30000;
 # holdMs: drill-only pause before each LLM call, 0-60000, default 0)
-curl -X POST -H "x-spike-key: $SPIKE_KEY" "$URL/api/spike/start" -d '{"delayMs":5000}'
+curl -X POST -H "Authorization: Bearer $ACCESS_KEY" "$URL/api/spike/start" -d '{"delayMs":5000}'
 # {"gameId":"…","viewerUrl":"/spike/…"}
 
-# Watch it live: open $URL/spike/<gameId> in a browser (no key needed)
+# Watch it live: open $URL/spike/<gameId> in a signed-in browser
 
 # Read the journal: each turn's stored request body, attempts, cost, cache hit
-curl -H "x-spike-key: $SPIKE_KEY" "$URL/api/spike/<gameId>/turns"
+curl -H "Authorization: Bearer $ACCESS_KEY" "$URL/api/spike/<gameId>/turns"
 ```
 
 ## CI secrets and variables

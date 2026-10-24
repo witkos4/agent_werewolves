@@ -130,7 +130,7 @@ The team migrated the scaffold to Workers and wrote the engine as one `async` lo
   - Runtime secrets live in Workers Secrets, set with `wrangler secret put ACCESS_KEY`, `OPENROUTER_API_KEY` / per-provider LLM keys, and `DATABASE_URL` (or a Hyperdrive binding).
   - `CLOUDFLARE_API_TOKEN` (scoped to Workers edit for this account) and `CLOUDFLARE_ACCOUNT_ID` live in GitHub Actions secrets.
   - Local dev uses `.dev.vars`, which is gitignored.
-  - Rotating the access key (FR-001) means `wrangler secret put ACCESS_KEY`. It takes effect on the next request with no redeploy, so the old key dies immediately.
+  - Rotating the access key (FR-001) means `wrangler secret put ACCESS_KEY`. It deploys a new version, so within seconds the old key, every session signed with it, and open viewer sockets stop working.
 - **Rollback**:
   - `wrangler deployments list`, then `wrangler rollback <version-id>`. It is instant (seconds) and needs no rebuild.
   - Caveats: rollback is blocked if the release added a Durable Object migration. Supabase schema migrations don't roll back. Running games restart from their last SQLite checkpoint.

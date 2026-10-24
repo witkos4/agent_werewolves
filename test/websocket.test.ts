@@ -8,6 +8,7 @@ import { setLlmCall } from "../workers/llm/client";
 type Stub = DurableObjectStub<GameRoom>;
 
 const HOUR = 60 * 60 * 1000;
+const AUTH = { Authorization: `Bearer ${env.ACCESS_KEY}` };
 const defaultTuning = { ...tuning };
 
 beforeEach(() => {
@@ -38,7 +39,7 @@ async function startGame() {
 
 async function connect(gameId: string, after: number) {
   const response = await SELF.fetch(`https://example.test/api/spike/${gameId}/ws?after=${after}`, {
-    headers: { Upgrade: "websocket" },
+    headers: { ...AUTH, Upgrade: "websocket" },
   });
   expect(response.status).toBe(101);
   const ws = response.webSocket!;
@@ -86,14 +87,14 @@ describe("viewer WebSocket", () => {
 
   it("returns 426 to a non-upgrade request", async () => {
     const { gameId } = await startGame();
-    const response = await SELF.fetch(`https://example.test/api/spike/${gameId}/ws`);
+    const response = await SELF.fetch(`https://example.test/api/spike/${gameId}/ws`, { headers: AUTH });
     expect(response.status).toBe(426);
   });
 
   it("returns 404 for an unknown game or a non-UUID id", async () => {
     for (const gameId of [crypto.randomUUID(), "not-a-uuid"]) {
       const response = await SELF.fetch(`https://example.test/api/spike/${gameId}/ws`, {
-        headers: { Upgrade: "websocket" },
+        headers: { ...AUTH, Upgrade: "websocket" },
       });
       expect(response.status).toBe(404);
     }

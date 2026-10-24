@@ -3,7 +3,7 @@ project: Agent Werewolves
 version: 1
 status: draft
 created: 2026-10-18
-updated: 2026-10-22
+updated: 2026-10-24
 prd_version: 1
 main_goal: learn
 top_blocker: time
@@ -41,7 +41,7 @@ The operator wants hands-on learning of agentic workflows across the whole build
 |---|---|---|---|---|---|
 | F-01 | deploy-skeleton | (foundation) app runs on the chosen platform at a public URL, deploys on merge, and its logs are readable | — | NFR: Archive kept indefinitely (survives redeploys); infrastructure.md | done |
 | F-02 | game-room-turn-loop-spike | (foundation) a dummy multi-turn game room is proven to survive eviction and redeploy, broadcast live, and never re-bill a retried turn | F-01 | NFR: Games finish in bounded time; NFR: Spend never overshoots; NFR: Live feels live | done |
-| S-01 | access-key-gate | operator reaches the app only with the access key and can rotate it | F-01 | FR-001 | proposed |
+| S-01 | access-key-gate | operator reaches the app only with the access key and can rotate it | F-01 | FR-001 | in-progress |
 | S-02 | first-live-ai-game | operator starts a fixed-setup all-AI game and watches it live until one side wins, with roles revealed at the end | F-02, S-01 | US-01, FR-005, FR-006, FR-007 | proposed |
 | S-03 | game-record-with-reasoning | operator reopens a finished game and reads the public transcript with each agent's private rationale beside it | S-02 | US-01, FR-009 | proposed |
 | S-04 | spectator-role-visibility | spectator toggles between hidden and shown roles while watching | S-02 | US-01, FR-008 | proposed |
@@ -117,7 +117,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Blockers:** —
 - **Unknowns:** —
 - **Risk:** Placed before the north star because the first real game spends LLM budget from a public URL. A leaked key is mitigated by rotation now and by the spend limit later (S-07).
-- **Status:** proposed
+- **Status:** in-progress
 
 ### S-02: First live AI game (north star)
 
