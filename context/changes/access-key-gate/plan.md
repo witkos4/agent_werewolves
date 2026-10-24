@@ -326,5 +326,5 @@ There's no data migration, and no Durable Object migration, so `wrangler rollbac
 #### Manual
 
 - [x] 3.5 Browser sign-in on production
-- [ ] 3.6 Rotation drill: open viewer drops, pages redirect, old bearer 404, new key works
+- [x] 3.6 Rotation drill: open viewer drops, pages redirect, old bearer 404, new key works
 - [x] 3.7 No `access_gate_misconfigured` lines in normal operation
