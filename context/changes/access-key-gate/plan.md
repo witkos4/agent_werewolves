@@ -304,15 +304,15 @@ There's no data migration, and no Durable Object migration, so `wrangler rollbac
 
 #### Automated
 
-- [x] 2.1 Types check (route types regenerate): `npm run typecheck`
-- [x] 2.2 All tests pass, including login tests: `npm test`
-- [x] 2.3 Build succeeds: `npm run build`
+- [x] 2.1 Types check (route types regenerate): `npm run typecheck` — 35b18ac
+- [x] 2.2 All tests pass, including login tests: `npm test` — 35b18ac
+- [x] 2.3 Build succeeds: `npm run build` — 35b18ac
 
 #### Manual
 
-- [x] 2.4 Dev sign-in flow: redirect, wrong-key error, right key lands on `next` with viewer connecting
-- [x] 2.5 `aw_session` cookie attributes correct in DevTools
-- [x] 2.6 `/login` while signed in redirects to `/`
+- [x] 2.4 Dev sign-in flow: redirect, wrong-key error, right key lands on `next` with viewer connecting — 35b18ac
+- [x] 2.5 `aw_session` cookie attributes correct in DevTools — 35b18ac
+- [x] 2.6 `/login` while signed in redirects to `/` — 35b18ac
 
 ### Phase 3: Docs and Production Rollout
 
