@@ -1,6 +1,5 @@
-// Spike-only HTTP routes, handled before React Router. SPIKE_KEY is a
-// temporary guard on everything that spends money or exposes request bodies;
-// S-01's access-key gate replaces it.
+// Spike-only HTTP routes, handled before React Router. The access-key gate in
+// workers/gate.ts runs first, so every route here is already authenticated.
 
 const PREFIX = "/api/spike/";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -16,12 +15,11 @@ export async function handleSpikeRequest(request: Request, env: Env): Promise<Re
   const parts = pathname.slice(PREFIX.length).split("/");
 
   if (parts.length === 1 && parts[0] === "start" && request.method === "POST") {
-    if (!(await hasSpikeKey(request, env))) return notFound();
     return startGame(request, env);
   }
 
-  // Viewer socket: unauthenticated on purpose. It spends nothing, and game
-  // ids are random UUIDs.
+  // Viewer socket: gated like everything else; the session cookie rides the
+  // handshake.
   if (parts.length === 2 && parts[1] === "ws" && UUID.test(parts[0])) {
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return new Response("Expected a WebSocket upgrade", { status: 426 });
@@ -32,7 +30,6 @@ export async function handleSpikeRequest(request: Request, env: Env): Promise<Re
   }
 
   if (parts.length === 2 && parts[1] === "turns" && request.method === "GET") {
-    if (!(await hasSpikeKey(request, env))) return notFound();
     const [gameId] = parts;
     // Never address a DO by an arbitrary name: that would create stored instances.
     if (!UUID.test(gameId)) return notFound();
@@ -68,22 +65,6 @@ async function startGame(request: Request, env: Env): Promise<Response> {
 
 function roomFor(env: Env, gameId: string) {
   return env.GAME_ROOM.get(env.GAME_ROOM.idFromName(gameId));
-}
-
-async function hasSpikeKey(request: Request, env: Env): Promise<boolean> {
-  const expected = env.SPIKE_KEY as string | undefined;
-  const given = request.headers.get("x-spike-key");
-  if (!expected || !given) return false;
-  // Compare fixed-length digests in constant time, so timing leaks neither
-  // the key's length nor how many leading bytes matched.
-  const [a, b] = await Promise.all([sha256(expected), sha256(given)]);
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
-  return diff === 0;
-}
-
-async function sha256(text: string): Promise<Uint8Array> {
-  return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
 }
 
 function clamp(value: unknown, { min, max, fallback }: { min: number; max: number; fallback: number }) {

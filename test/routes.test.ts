@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type GameRoom, tuning } from "../workers/game-room";
 import { handleSpikeRequest } from "../workers/spike/routes";
 
-const KEY = "test-spike-key";
 const HOUR = 60 * 60 * 1000;
 const defaultTuning = { ...tuning };
 
@@ -18,17 +17,15 @@ afterEach(() => {
   Object.assign(tuning, defaultTuning);
 });
 
-function request(path: string, init: RequestInit & { key?: string } = {}) {
-  const headers = new Headers(init.headers);
-  if (init.key) headers.set("x-spike-key", init.key);
-  return new Request(`https://example.test${path}`, { ...init, headers });
+// The access-key gate runs before these handlers; its tests are in gate.test.ts.
+function request(path: string, init: RequestInit = {}) {
+  return new Request(`https://example.test${path}`, init);
 }
 
 async function start(body?: unknown) {
   const response = await handleSpikeRequest(
     request("/api/spike/start", {
       method: "POST",
-      key: KEY,
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
     env,
@@ -40,28 +37,6 @@ describe("spike routes", () => {
   it("leaves non-spike paths to React Router", async () => {
     expect(await handleSpikeRequest(request("/healthz"), env)).toBeNull();
     expect(await handleSpikeRequest(request("/spike/abc"), env)).toBeNull();
-  });
-
-  it.each([
-    ["missing", undefined],
-    ["wrong", "not-the-key"],
-  ])("returns 404 on start with a %s key", async (_label, key) => {
-    const response = await handleSpikeRequest(
-      request("/api/spike/start", { method: "POST", key }),
-      env,
-    );
-    expect(response?.status).toBe(404);
-  });
-
-  it("returns 404 when SPIKE_KEY is unset, whatever the header", async () => {
-    const unset = { ...env, SPIKE_KEY: undefined } as unknown as Env;
-    for (const key of [KEY, "undefined", ""]) {
-      const response = await handleSpikeRequest(
-        request("/api/spike/start", { method: "POST", key }),
-        unset,
-      );
-      expect(response?.status).toBe(404);
-    }
   });
 
   it("starts a game and returns its UUID and viewer URL", async () => {
@@ -90,19 +65,17 @@ describe("spike routes", () => {
     expect(game).toMatchObject({ delay_ms: 30_000, hold_ms: 0 });
 
     const bad = await handleSpikeRequest(
-      request("/api/spike/start", { method: "POST", key: KEY, body: "{nope" }),
+      request("/api/spike/start", { method: "POST", body: "{nope" }),
       env,
     );
     expect(bad?.status).toBe(400);
   });
 
-  it("returns the journal only with the key", async () => {
+  it("returns the journal of a started game", async () => {
     const { gameId } = await (await start()).json<{ gameId: string }>();
     const path = `/api/spike/${gameId}/turns`;
 
-    expect((await handleSpikeRequest(request(path), env))?.status).toBe(404);
-
-    const response = await handleSpikeRequest(request(path, { key: KEY }), env);
+    const response = await handleSpikeRequest(request(path), env);
     expect(response?.status).toBe(200);
     const journal = await response!.json<{ game: { id: string }; turns: unknown[] }>();
     expect(journal.game.id).toBe(gameId);
@@ -112,7 +85,7 @@ describe("spike routes", () => {
   it("returns 404 for a non-UUID game id or an unknown game", async () => {
     for (const gameId of ["not-a-uuid", "start", crypto.randomUUID()]) {
       const response = await handleSpikeRequest(
-        request(`/api/spike/${gameId}/turns`, { key: KEY }),
+        request(`/api/spike/${gameId}/turns`),
         env,
       );
       expect(response?.status).toBe(404);
@@ -120,7 +93,7 @@ describe("spike routes", () => {
   });
 
   it("returns 404 for other methods and paths under /api/spike/", async () => {
-    expect((await handleSpikeRequest(request("/api/spike/start", { key: KEY }), env))?.status).toBe(404);
-    expect((await handleSpikeRequest(request("/api/spike/other", { key: KEY }), env))?.status).toBe(404);
+    expect((await handleSpikeRequest(request("/api/spike/start"), env))?.status).toBe(404);
+    expect((await handleSpikeRequest(request("/api/spike/other"), env))?.status).toBe(404);
   });
 });

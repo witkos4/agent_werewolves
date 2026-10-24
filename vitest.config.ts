@@ -11,7 +11,7 @@ export default defineConfig({
       miniflare: {
         bindings: {
           OPENROUTER_API_KEY: "test-openrouter-key",
-          SPIKE_KEY: "test-spike-key",
+          ACCESS_KEY: "test-access-key-0123456789abcdefghij",
         },
       },
     }),
