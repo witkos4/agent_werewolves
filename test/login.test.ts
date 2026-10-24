@@ -62,6 +62,7 @@ describe("login route", () => {
     for (const [query, location] of [
       [`?next=${encodeURIComponent(NEXT)}`, NEXT],
       ["", "/"],
+      ["?next=%2F%09%2Fevil.test", "/"],
     ]) {
       const request = new Request(`https://example.test/login${query}`, { headers: { Cookie } });
       const thrown = await loader(args(request)).catch((error: unknown) => error);
@@ -81,9 +82,24 @@ describe("sanitizeNext", () => {
   it("keeps same-origin paths", () => {
     expect(sanitizeNext(NEXT)).toBe(NEXT);
     expect(sanitizeNext("/")).toBe("/");
+    expect(sanitizeNext("/spike/x?a=1#end")).toBe("/spike/x?a=1#end");
   });
 
-  it.each(["//evil.test", "https://evil.test", "/\\evil", "/login", "/login?next=%2F", "", null, undefined])(
+  it.each([
+    "//evil.test",
+    "https://evil.test",
+    "/\\evil",
+    // Browsers strip tabs and newlines and read `\` as `/` before resolving.
+    "/\t/evil.test",
+    "/\n/evil.test",
+    "/\t\\evil.test",
+    "/login",
+    "/login/",
+    "/login?next=%2F",
+    "",
+    null,
+    undefined,
+  ])(
     "maps %j to /",
     (raw) => {
       expect(sanitizeNext(raw)).toBe("/");
