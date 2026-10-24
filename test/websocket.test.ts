@@ -1,8 +1,8 @@
-import { evictDurableObject, runDurableObjectAlarm, SELF } from "cloudflare:test";
+import { evictDurableObject, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { type GameEvent, type GameRoom, tuning } from "../workers/game-room";
+import { type GameEvent, type GameRoom, KEY_ROTATED_CLOSE_CODE, tuning } from "../workers/game-room";
 import { setLlmCall } from "../workers/llm/client";
 
 type Stub = DurableObjectStub<GameRoom>;
@@ -47,8 +47,9 @@ async function connect(gameId: string, after: number) {
   ws.addEventListener("message", (message) => {
     received.push(JSON.parse(message.data as string));
   });
+  const closed = new Promise<CloseEvent>((resolve) => ws.addEventListener("close", resolve));
   ws.accept();
-  return { ws, received };
+  return { ws, received, closed };
 }
 
 const seqs = (events: GameEvent[]) => events.map((event) => event.seq);
@@ -83,6 +84,45 @@ describe("viewer WebSocket", () => {
     await runDurableObjectAlarm(stub); // turn 3 → seq 4, finished → seq 5
     await vi.waitFor(() => expect(seqs(second.received)).toEqual([3, 4, 5]));
     second.ws.close();
+  });
+
+  it("keeps a hibernated socket across eviction while the key is unchanged", async () => {
+    const { gameId, stub } = await startGame();
+    const { ws, received } = await connect(gameId, 0);
+    await vi.waitFor(() => expect(seqs(received)).toEqual([1]));
+
+    await evictDurableObject(stub); // Sockets hibernate, as on a deploy.
+    await runDurableObjectAlarm(stub); // turn 1 → seq 2
+    await vi.waitFor(() => expect(seqs(received)).toEqual([1, 2]));
+    ws.close();
+  });
+
+  it("closes a hibernated socket opened with a rotated key as soon as the room wakes", async () => {
+    const { gameId, stub } = await startGame();
+    const { received, closed } = await connect(gameId, 0);
+    await vi.waitFor(() => expect(seqs(received)).toEqual([1]));
+    // Stand in for a socket opened before `wrangler secret put ACCESS_KEY`.
+    await runInDurableObject(stub, (_room, state) => {
+      state.getWebSockets()[0].serializeAttachment({ keyFingerprint: "previous-key" });
+    });
+
+    await evictDurableObject(stub);
+    await stub.getJournal(); // Constructing the room on the new key drops the socket.
+    expect((await closed).code).toBe(KEY_ROTATED_CLOSE_CODE);
+    expect(seqs(received)).toEqual([1]);
+  });
+
+  it("does not broadcast to a socket whose key no longer matches", async () => {
+    const { gameId, stub } = await startGame();
+    const { received, closed } = await connect(gameId, 0);
+    await vi.waitFor(() => expect(seqs(received)).toEqual([1]));
+    await runInDurableObject(stub, (room) => {
+      (room as unknown as { keyFingerprint: string }).keyFingerprint = "rotated";
+    });
+
+    await runDurableObjectAlarm(stub); // turn 1 → seq 2, withheld
+    expect((await closed).code).toBe(KEY_ROTATED_CLOSE_CODE);
+    expect(seqs(received)).toEqual([1]);
   });
 
   it("returns 426 to a non-upgrade request", async () => {

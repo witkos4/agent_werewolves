@@ -4,6 +4,7 @@ import {
   configuredKey,
   isAuthenticated,
   issueSession,
+  keyFingerprint,
   keyMatches,
   readSessionCookie,
   SESSION_TTL_SECONDS,
@@ -111,5 +112,19 @@ describe("isAuthenticated", () => {
   it("rejects even a matching credential when the configured key is too short", async () => {
     const short = "k".repeat(31);
     expect(await isAuthenticated(request({ Authorization: `Bearer ${short}` }), envWith(short), NOW)).toBe(false);
+  });
+});
+
+describe("keyFingerprint", () => {
+  it("is stable per key, changes on rotation, and never contains the key", async () => {
+    const fingerprint = await keyFingerprint(envWith(KEY));
+    expect(await keyFingerprint(envWith(`${KEY}\n`))).toBe(fingerprint);
+    expect(await keyFingerprint(envWith(OTHER_KEY))).not.toBe(fingerprint);
+    expect(fingerprint).not.toContain(KEY);
+  });
+
+  it("is \"none\" when the key is misconfigured", async () => {
+    expect(await keyFingerprint(envWith(undefined))).toBe("none");
+    expect(await keyFingerprint(envWith("k".repeat(31)))).toBe("none");
   });
 });

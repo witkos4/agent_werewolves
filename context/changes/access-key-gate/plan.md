@@ -318,13 +318,13 @@ There's no data migration, and no Durable Object migration, so `wrangler rollbac
 
 #### Automated
 
-- [ ] 3.1 CI `main` run passes end to end, including unauthenticated `/healthz` smoke test
-- [ ] 3.2 Production refuses anonymous spend (404)
-- [ ] 3.3 Production redirects anonymous pages (302 to `/login`)
+- [x] 3.1 CI `main` run passes end to end, including unauthenticated `/healthz` smoke test
+- [x] 3.2 Production refuses anonymous spend (404)
+- [x] 3.3 Production redirects anonymous pages (302 to `/login`)
 - [ ] 3.4 Production secrets are exactly `ACCESS_KEY` and `OPENROUTER_API_KEY`
 
 #### Manual
 
-- [ ] 3.5 Browser sign-in on production
+- [x] 3.5 Browser sign-in on production
 - [ ] 3.6 Rotation drill: open viewer drops, pages redirect, old bearer 404, new key works
-- [ ] 3.7 No `access_gate_misconfigured` lines in normal operation
+- [x] 3.7 No `access_gate_misconfigured` lines in normal operation
