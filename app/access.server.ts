@@ -7,6 +7,7 @@ export const SESSION_COOKIE = "aw_session";
 export const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 const encoder = new TextEncoder();
+const NEXT_BASE = "https://next.invalid";
 
 /** The trimmed key, or null when it is unset or too short (the gate then fails closed). */
 export function configuredKey(env: Env): string | null {
@@ -80,10 +81,19 @@ export async function keyFingerprint(env: Env): Promise<string> {
 
 /** A same-origin path to send the operator to after sign-in; anything else becomes `/`. */
 export function sanitizeNext(raw: string | null | undefined): string {
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) return "/";
+  if (!raw?.startsWith("/")) return "/";
+  // Parse it the way the browser will: it strips tabs and newlines and reads
+  // `\` as `/`, so "/<TAB>/evil.test" would otherwise leave the site.
+  let url: URL;
+  try {
+    url = new URL(raw, NEXT_BASE);
+  } catch {
+    return "/";
+  }
+  if (url.origin !== NEXT_BASE) return "/";
   // Never bounce back to the login page itself.
-  if (/^\/login(?:[/?#]|$)/.test(raw)) return "/";
-  return raw;
+  if (url.pathname === "/login" || url.pathname.startsWith("/login/")) return "/";
+  return url.pathname + url.search + url.hash;
 }
 
 /** True for a valid session cookie or `Authorization: Bearer <key>`. */
