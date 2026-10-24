@@ -69,6 +69,14 @@ export function readSessionCookie(request: Request): string | null {
   return null;
 }
 
+/** A same-origin path to send the operator to after sign-in; anything else becomes `/`. */
+export function sanitizeNext(raw: string | null | undefined): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) return "/";
+  // Never bounce back to the login page itself.
+  if (/^\/login(?:[/?#]|$)/.test(raw)) return "/";
+  return raw;
+}
+
 /** True for a valid session cookie or `Authorization: Bearer <key>`. */
 export async function isAuthenticated(request: Request, env: Env, now: number): Promise<boolean> {
   const key = configuredKey(env);

@@ -16,6 +16,10 @@ export default defineConfig({
       },
     }),
   ],
+  // Route modules import `~/…` (tsconfig paths), as in vite.config.ts.
+  resolve: {
+    tsconfigPaths: true,
+  },
   test: {
     setupFiles: ["./test/setup.ts"],
     // Hibernatable WebSockets with Durable Objects need a single shared worker.

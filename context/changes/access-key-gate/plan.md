@@ -290,29 +290,29 @@ There's no data migration, and no Durable Object migration, so `wrangler rollbac
 
 #### Automated
 
-- [x] 1.1 Types regenerate and check: `npm run typecheck`
-- [x] 1.2 All tests pass, including new access and gate tests: `npm test`
-- [x] 1.3 Build succeeds: `npm run build`
-- [x] 1.4 No `SPIKE_KEY` / `x-spike-key` left in code or config
+- [x] 1.1 Types regenerate and check: `npm run typecheck` — 241e777
+- [x] 1.2 All tests pass, including new access and gate tests: `npm test` — 241e777
+- [x] 1.3 Build succeeds: `npm run build` — 241e777
+- [x] 1.4 No `SPIKE_KEY` / `x-spike-key` left in code or config — 241e777
 
 #### Manual
 
-- [x] 1.5 Dev curls: anonymous page 302, anonymous API 404, bearer API 200
-- [x] 1.6 Dev fail-closed with `ACCESS_KEY` removed, log line visible
+- [x] 1.5 Dev curls: anonymous page 302, anonymous API 404, bearer API 200 — 241e777
+- [x] 1.6 Dev fail-closed with `ACCESS_KEY` removed, log line visible — 241e777
 
 ### Phase 2: Login Page
 
 #### Automated
 
-- [ ] 2.1 Types check (route types regenerate): `npm run typecheck`
-- [ ] 2.2 All tests pass, including login tests: `npm test`
-- [ ] 2.3 Build succeeds: `npm run build`
+- [x] 2.1 Types check (route types regenerate): `npm run typecheck`
+- [x] 2.2 All tests pass, including login tests: `npm test`
+- [x] 2.3 Build succeeds: `npm run build`
 
 #### Manual
 
-- [ ] 2.4 Dev sign-in flow: redirect, wrong-key error, right key lands on `next` with viewer connecting
-- [ ] 2.5 `aw_session` cookie attributes correct in DevTools
-- [ ] 2.6 `/login` while signed in redirects to `/`
+- [x] 2.4 Dev sign-in flow: redirect, wrong-key error, right key lands on `next` with viewer connecting
+- [x] 2.5 `aw_session` cookie attributes correct in DevTools
+- [x] 2.6 `/login` while signed in redirects to `/`
 
 ### Phase 3: Docs and Production Rollout
 
