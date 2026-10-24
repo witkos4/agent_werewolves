@@ -69,6 +69,15 @@ export function readSessionCookie(request: Request): string | null {
   return null;
 }
 
+/**
+ * Names the configured key without revealing it, so long-lived connections can
+ * be tied to the key they were opened with. "none" when misconfigured.
+ */
+export async function keyFingerprint(env: Env): Promise<string> {
+  const key = configuredKey(env);
+  return key ? toBase64Url(await sha256(`fingerprint:v1:${key}`)) : "none";
+}
+
 /** A same-origin path to send the operator to after sign-in; anything else becomes `/`. */
 export function sanitizeNext(raw: string | null | undefined): string {
   if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) return "/";

@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 
+import { keyFingerprint } from "../app/access.server";
 import { callLlm, type LlmResult } from "./llm/client";
 import { buildTurnRequest } from "./spike/story";
 
@@ -65,12 +66,19 @@ export type StartOptions = {
 
 const SCHEMA_VERSION = 1;
 
+/** Close code for a viewer socket opened with an access key that has since been rotated. */
+export const KEY_ROTATED_CLOSE_CODE = 4001;
+
+type SocketAttachment = { keyFingerprint: string };
+
 /**
  * One game per instance. All game state lives in SQLite; each alarm runs at
  * most one turn attempt, so the loop survives eviction and redeploys.
  */
 export class GameRoom extends DurableObject<Env> {
   private readonly sql: SqlStorage;
+  /** Fingerprint of this version's ACCESS_KEY; rotation deploys a new version. */
+  private keyFingerprint = "";
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -79,6 +87,10 @@ export class GameRoom extends DurableObject<Env> {
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
     ctx.blockConcurrencyWhile(async () => {
       this.migrate();
+      // Hibernated sockets outlive the rotation deploy, so the first instance on
+      // the new key drops the ones opened with the old key.
+      this.keyFingerprint = await keyFingerprint(env);
+      this.liveSockets();
       log("game_room_constructed", {
         gameId: this.readGame()?.id ?? null,
         versionId: env.CF_VERSION_METADATA?.id ?? null,
@@ -135,6 +147,7 @@ export class GameRoom extends DurableObject<Env> {
     const after = Number(new URL(request.url).searchParams.get("after"));
     const { 0: client, 1: server } = new WebSocketPair();
     this.ctx.acceptWebSocket(server);
+    server.serializeAttachment({ keyFingerprint: this.keyFingerprint } satisfies SocketAttachment);
     for (const event of this.eventsAfter(Number.isSafeInteger(after) ? after : 0)) {
       server.send(JSON.stringify(event));
     }
@@ -326,7 +339,7 @@ export class GameRoom extends DurableObject<Env> {
   }
 
   private broadcast(events: GameEvent[]): void {
-    for (const ws of this.ctx.getWebSockets()) {
+    for (const ws of this.liveSockets()) {
       for (const event of events) {
         try {
           ws.send(JSON.stringify(event));
@@ -335,6 +348,20 @@ export class GameRoom extends DurableObject<Env> {
         }
       }
     }
+  }
+
+  /** Open sockets, after closing any opened with a key other than the current one. */
+  private liveSockets(): WebSocket[] {
+    return this.ctx.getWebSockets().filter((ws) => {
+      const attachment = ws.deserializeAttachment() as SocketAttachment | null;
+      if (attachment?.keyFingerprint === this.keyFingerprint) return true;
+      try {
+        ws.close(KEY_ROTATED_CLOSE_CODE, "access key rotated");
+      } catch {
+        // Already closed.
+      }
+      return false;
+    });
   }
 
   private appendEvent(type: GameEvent["type"], payload: unknown): GameEvent {
