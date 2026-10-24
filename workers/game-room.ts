@@ -12,6 +12,13 @@ export const tuning = {
   quietMs: 45_000,
   fetchTimeoutMs: 30_000,
   retryBackoffMs: 5_000,
+  /**
+   * A viewer socket older than this is closed before the next broadcast, so it
+   * reconnects through the access-key gate. Bounds how long a socket opened
+   * with a rotated key keeps receiving events: a running room can stay on the
+   * pre-rotation version (and key) for minutes.
+   */
+  maxSocketAgeMs: 2 * 60_000,
 };
 
 export type GameStatus = "running" | "finished" | "aborted";
@@ -68,8 +75,10 @@ const SCHEMA_VERSION = 1;
 
 /** Close code for a viewer socket opened with an access key that has since been rotated. */
 export const KEY_ROTATED_CLOSE_CODE = 4001;
+/** Close code for a viewer socket past `tuning.maxSocketAgeMs`; the viewer reconnects. */
+export const SOCKET_EXPIRED_CLOSE_CODE = 4002;
 
-type SocketAttachment = { keyFingerprint: string };
+type SocketAttachment = { keyFingerprint: string; openedAt: number };
 
 /**
  * One game per instance. All game state lives in SQLite; each alarm runs at
@@ -147,7 +156,10 @@ export class GameRoom extends DurableObject<Env> {
     const after = Number(new URL(request.url).searchParams.get("after"));
     const { 0: client, 1: server } = new WebSocketPair();
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ keyFingerprint: this.keyFingerprint } satisfies SocketAttachment);
+    server.serializeAttachment({
+      keyFingerprint: this.keyFingerprint,
+      openedAt: Date.now(),
+    } satisfies SocketAttachment);
     for (const event of this.eventsAfter(Number.isSafeInteger(after) ? after : 0)) {
       server.send(JSON.stringify(event));
     }
@@ -350,17 +362,23 @@ export class GameRoom extends DurableObject<Env> {
     }
   }
 
-  /** Open sockets, after closing any opened with a key other than the current one. */
+  /**
+   * Open sockets, after closing any opened with a key other than the current
+   * one or open longer than `tuning.maxSocketAgeMs`.
+   */
   private liveSockets(): WebSocket[] {
+    const now = Date.now();
     return this.ctx.getWebSockets().filter((ws) => {
       const attachment = ws.deserializeAttachment() as SocketAttachment | null;
-      if (attachment?.keyFingerprint === this.keyFingerprint) return true;
-      try {
-        ws.close(KEY_ROTATED_CLOSE_CODE, "access key rotated");
-      } catch {
-        // Already closed.
+      if (attachment?.keyFingerprint !== this.keyFingerprint) {
+        closeQuietly(ws, KEY_ROTATED_CLOSE_CODE, "access key rotated");
+        return false;
       }
-      return false;
+      if (now - attachment.openedAt >= tuning.maxSocketAgeMs) {
+        closeQuietly(ws, SOCKET_EXPIRED_CLOSE_CODE, "reconnect");
+        return false;
+      }
+      return true;
     });
   }
 
@@ -449,6 +467,14 @@ export class GameRoom extends DurableObject<Env> {
       this.sql.exec("DELETE FROM schema_version");
       this.sql.exec("INSERT INTO schema_version (version) VALUES (?)", SCHEMA_VERSION);
     });
+  }
+}
+
+function closeQuietly(ws: WebSocket, code: number, reason: string): void {
+  try {
+    ws.close(code, reason);
+  } catch {
+    // Already closed.
   }
 }
 
