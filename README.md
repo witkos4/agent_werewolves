@@ -109,7 +109,7 @@ curl -H "Authorization: Bearer $ACCESS_KEY" "$URL/api/games/<uuid>"
 # Viewer WebSocket: /api/games/<uuid>/ws?after=<last-seq>
 ```
 
-Start requests are idempotent by UUID; changing settings for the same UUID returns 409. New real-game rooms use a separate name prefix inside the existing `GAME_ROOM` binding. Existing spike rooms and APIs retain their schema and behavior. New real-game tables are additive; do not remove the `GameRoom` export or its original migration.
+Start requests are idempotent by UUID; changing settings for the same UUID returns 409. New real-game rooms use a separate name prefix inside the existing `GAME_ROOM` binding. Existing spike rooms and APIs retain their schema and behavior. New real-game tables are additive; see [Rollback](#rollback) for migration constraints.
 
 Before closing S-02, follow the deployed-game drill in [`context/changes/first-live-ai-game/verification.md`](context/changes/first-live-ai-game/verification.md). Automated tests use fake providers and do not spend money. The original spike's production retry-cache proof remains unresolved; this implementation charges every attempt against its safety allowance without relying on a free cache hit.
 

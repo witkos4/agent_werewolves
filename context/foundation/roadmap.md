@@ -128,8 +128,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Parallel with:** —
 - **Blockers:** —
 - **Unknowns:**
-  - Exact turn protocol: what each agent receives per phase so that no agent sees information its role should not know. Owner: user. Block: no (resolve in `/10x-plan`).
-  - Interim safety cap on spend until S-07 lands. Owner: user. Block: no.
+  - None for implementation; the resolved information boundaries and interim safety allowance are described in [README.md](../../README.md#live-werewolf-game). Deployed acceptance remains pending in the change's verification record.
 - **Risk:** The riskiest slice in the milestone: hidden-info leaks, games that never end, and live lag all surface here first. The fixed setup and the single special role keep it thin enough to plan in one go.
 - **Status:** in-progress — implemented locally; production acceptance pending (`context/changes/first-live-ai-game/verification.md`).
 

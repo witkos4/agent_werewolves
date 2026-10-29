@@ -10,8 +10,8 @@ type ChatCompletion = {
 
 /**
  * One chat-completions call per attempt. The body is sent unchanged and the
- * response cache is on, so a re-sent turn whose first reply was cached is a
- * free HIT instead of a second bill.
+ * response cache is on to permit reuse. Production retry hits remain unproven;
+ * live-game safety reservations cover every attempt regardless of cache status.
  */
 export async function callOpenRouter({ apiKey, body, signal }: LlmRequest): Promise<LlmResult> {
   const startedAt = Date.now();

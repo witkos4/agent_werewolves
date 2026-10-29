@@ -1,12 +1,12 @@
 # First Live AI Game Implementation Plan
 
-## Starting point
+## Starting point (before implementation)
 
 `workers/game-room.ts` already journals requests before sending, commits replies and events together, schedules one attempt per alarm, and replays events to hibernating WebSockets. Its actual turn logic is a three-sentence story from `workers/spike/story.ts`. `workers/spike/routes.ts` exposes spike start, journal and socket endpoints. The home route is a placeholder.
 
 The Worker gate protects HTTP and WebSocket handshakes. Preserve the socket key fingerprint and two-minute age cap: archived S-01 drills show that deploys can leave old instances and sockets alive. Preserve the `GameRoom` class and additive migrations: existing spike objects are deployed and old/new code may overlap.
 
-F-02 proved eviction, redeploy continuity and event replay. It did **not** prove free production retries. An absent OpenRouter `usage.cost` currently becomes zero; that must never stand in for a budget guarantee.
+F-02 proved eviction, redeploy continuity and event replay. It did **not** prove free production retries. Before this change, an absent OpenRouter `usage.cost` became zero; the implementation now preserves it as unknown. See [README.md](../../../README.md#live-werewolf-game) for the current safety contract.
 
 ## Phase 1: Rules and agent protocol
 
