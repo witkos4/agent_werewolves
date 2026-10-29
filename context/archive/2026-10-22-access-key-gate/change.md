@@ -1,10 +1,10 @@
 ---
 change_id: access-key-gate
 title: Access key gate
-status: implemented
+status: archived
 created: 2026-10-22
-updated: 2026-10-25
-archived_at: null
+updated: 2026-10-29
+archived_at: 2026-10-29T18:40:40Z
 ---
 
 ## Notes
