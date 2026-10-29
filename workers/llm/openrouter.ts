@@ -20,7 +20,7 @@ export async function callOpenRouter({ apiKey, body, signal }: LlmRequest): Prom
     response = await fetch(ENDPOINT, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey.trim()}`,
         "Content-Type": "application/json",
         "X-OpenRouter-Cache": "true",
         "X-OpenRouter-Cache-TTL": "86400",
@@ -63,7 +63,7 @@ export async function callOpenRouter({ apiKey, body, signal }: LlmRequest): Prom
     ok: true,
     text,
     // A HIT is free; recording its usage.cost would double-count the original call.
-    cost: cacheHit ? 0 : (completion.usage?.cost ?? 0),
+    cost: cacheHit ? 0 : (typeof completion.usage?.cost === "number" && Number.isFinite(completion.usage.cost) && completion.usage.cost >= 0 ? completion.usage.cost : null),
     cacheHit,
     generationId: cacheHit
       ? response.headers.get("X-OpenRouter-Cache-Source-Id")

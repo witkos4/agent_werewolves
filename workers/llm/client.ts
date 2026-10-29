@@ -11,7 +11,7 @@ export type LlmResult =
   | {
       ok: true;
       text: string;
-      cost: number;
+      cost: number | null;
       cacheHit: boolean;
       generationId: string | null;
       latencyMs: number;

@@ -85,6 +85,34 @@ Then check `/healthz` reports that version. To roll forward, re-run the latest `
 
 **Rollback cannot cross the first Durable Object migration** (`GameRoom`, tag `v1`). Once a version with it is live, `wrangler rollback` to an older version is refused. Fix forward instead, and never remove the `GameRoom` export or its migration entry: schema changes go through the in-code `schema_version` migrations in `workers/game-room.ts`.
 
+## Live Werewolf game
+
+Sign in and select **Start a game** on the home page. The fixed table has five shuffled seats: one Werewolf, one Seer and three Villagers. All seats use `google/gemini-3.1-flash-lite` through the existing OpenRouter key. Choose one or two discussion rounds per day before starting.
+
+The Seer investigates before the night kill resolves. Each living player speaks during discussion, then submits a vote privately; all votes are revealed together. Ties eliminate a random tied player. Deaths do not reveal roles. The village wins when the wolf dies; the wolf wins at parity. Completion reveals every role. A reload or socket reconnect resumes the public transcript, and expired credentials show a sign-in link.
+
+Games run one saved model attempt per Durable Object alarm and stop after 45 minutes, three failed attempts on one turn, an invalid move, context overflow, or the safety allowance. The room reserves a conservative allowance **before every attempt**, including retries and ambiguous failures, against a fixed $0.25 per-game ceiling. Successful calls do not release reservations. Starting checks the public model pricing catalog; provider routing also enforces input/output rate ceilings. This safety allowance is not a cost estimate or an account-wide spending cap. Operator budgets and cost estimates remain S-07.
+
+Agent requests include public history and that agent's own private information only. Snapshot APIs and WebSockets carry the public projection; private model prompts, investigations and rationale remain inside the room. The later record/archive slices will add external archival and reasoning inspection. For now keep the viewer URL to reopen a room; there is no archive list.
+
+Script API (requires the same bearer key as the rest of the app):
+
+```bash
+# requestId is a fresh UUID for each intentional game; reuse it to retry a start.
+curl -X POST -H "Authorization: Bearer $ACCESS_KEY" \
+  -H 'Content-Type: application/json' "$URL/api/games/start" \
+  -d '{"requestId":"<uuid>","discussionPasses":1}'
+# {"gameId":"…","viewerUrl":"/games/…"}
+
+curl -H "Authorization: Bearer $ACCESS_KEY" "$URL/api/games/<uuid>"
+# {"seq":…, "game":{…public state…}}
+# Viewer WebSocket: /api/games/<uuid>/ws?after=<last-seq>
+```
+
+Start requests are idempotent by UUID; changing settings for the same UUID returns 409. New real-game rooms use a separate name prefix inside the existing `GAME_ROOM` binding. Existing spike rooms and APIs retain their schema and behavior. New real-game tables are additive; do not remove the `GameRoom` export or its original migration.
+
+Before closing S-02, follow the deployed-game drill in [`context/changes/first-live-ai-game/verification.md`](context/changes/first-live-ai-game/verification.md). Automated tests use fake providers and do not spend money. The original spike's production retry-cache proof remains unresolved; this implementation charges every attempt against its safety allowance without relying on a free cache hit.
+
 ## Spike: game-room turn loop
 
 A throwaway three-turn "story" game that proves the `GameRoom` turn loop (F-02). Like everything else, it sits behind the access key.
