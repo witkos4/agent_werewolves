@@ -10,8 +10,8 @@ type ChatCompletion = {
 
 /**
  * One chat-completions call per attempt. The body is sent unchanged and the
- * response cache is on, so a re-sent turn whose first reply was cached is a
- * free HIT instead of a second bill.
+ * response cache is on to permit reuse. Production retry hits remain unproven;
+ * live-game safety reservations cover every attempt regardless of cache status.
  */
 export async function callOpenRouter({ apiKey, body, signal }: LlmRequest): Promise<LlmResult> {
   const startedAt = Date.now();
@@ -20,7 +20,7 @@ export async function callOpenRouter({ apiKey, body, signal }: LlmRequest): Prom
     response = await fetch(ENDPOINT, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey.trim()}`,
         "Content-Type": "application/json",
         "X-OpenRouter-Cache": "true",
         "X-OpenRouter-Cache-TTL": "86400",
@@ -63,7 +63,7 @@ export async function callOpenRouter({ apiKey, body, signal }: LlmRequest): Prom
     ok: true,
     text,
     // A HIT is free; recording its usage.cost would double-count the original call.
-    cost: cacheHit ? 0 : (completion.usage?.cost ?? 0),
+    cost: cacheHit ? 0 : (typeof completion.usage?.cost === "number" && Number.isFinite(completion.usage.cost) && completion.usage.cost >= 0 ? completion.usage.cost : null),
     cacheHit,
     generationId: cacheHit
       ? response.headers.get("X-OpenRouter-Cache-Source-Id")

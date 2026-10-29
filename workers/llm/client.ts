@@ -2,7 +2,7 @@ import { callOpenRouter } from "./openrouter";
 
 export type LlmRequest = {
   apiKey: string;
-  /** Exact JSON body, sent unchanged so retries hit the gateway cache. */
+  /** Exact JSON body, kept unchanged to permit gateway cache reuse on retries. */
   body: string;
   signal: AbortSignal;
 };
@@ -11,7 +11,7 @@ export type LlmResult =
   | {
       ok: true;
       text: string;
-      cost: number;
+      cost: number | null;
       cacheHit: boolean;
       generationId: string | null;
       latencyMs: number;

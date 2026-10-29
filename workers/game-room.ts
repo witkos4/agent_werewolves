@@ -3,6 +3,7 @@ import { DurableObject } from "cloudflare:workers";
 import { keyFingerprint } from "../app/access.server";
 import { callLlm, type LlmResult } from "./llm/client";
 import { buildTurnRequest } from "./spike/story";
+import { LiveGame, type LiveStartResult, type Snapshot } from "./game/runtime";
 
 /** Loop limits. Mutable only so tests can shrink the waits. */
 export const tuning = {
@@ -88,6 +89,7 @@ export class GameRoom extends DurableObject<Env> {
   private readonly sql: SqlStorage;
   /** Fingerprint of this version's ACCESS_KEY; rotation deploys a new version. */
   private keyFingerprint = "";
+  private liveGame!: LiveGame;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -96,12 +98,16 @@ export class GameRoom extends DurableObject<Env> {
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
     ctx.blockConcurrencyWhile(async () => {
       this.migrate();
+      this.liveGame = new LiveGame(ctx, env, (type, game) => {
+        const event = this.appendEvent(type, game);
+        return () => this.broadcast([event]);
+      });
       // Hibernated sockets outlive the rotation deploy, so the first instance on
       // the new key drops the ones opened with the old key.
       this.keyFingerprint = await keyFingerprint(env);
       this.liveSockets();
       log("game_room_constructed", {
-        gameId: this.readGame()?.id ?? null,
+        gameId: this.readGame()?.id ?? this.liveGame.read()?.id ?? null,
         versionId: env.CF_VERSION_METADATA?.id ?? null,
       });
     });
@@ -114,6 +120,7 @@ export class GameRoom extends DurableObject<Env> {
     holdMs = 0,
     model,
   }: StartOptions): Promise<void> {
+    if (this.liveGame.read()) throw new Error("Room already used for a live game");
     if (this.readGame()) return;
 
     const events = this.ctx.storage.transactionSync(() => {
@@ -142,6 +149,16 @@ export class GameRoom extends DurableObject<Env> {
     };
   }
 
+  async startLive(gameId: string, discussionPasses: number): Promise<LiveStartResult> {
+    if (this.readGame()) return { ok: false, status: 409, error: "Room already used for a spike." };
+    if (![1, 2].includes(discussionPasses)) return { ok: false, status: 400, error: "Choose one or two discussion passes." };
+    return this.liveGame.start(gameId, discussionPasses);
+  }
+
+  getLiveSnapshot(): Snapshot | null {
+    return this.liveGame.snapshot();
+  }
+
   /**
    * Viewer sockets. Sends every event after `?after=<seq>` before returning,
    * in one synchronous turn, so no live event can interleave with the
@@ -151,7 +168,7 @@ export class GameRoom extends DurableObject<Env> {
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return new Response("Expected a WebSocket upgrade", { status: 426 });
     }
-    if (!this.readGame()) return new Response("Not found", { status: 404 });
+    if (!this.readGame() && !this.liveGame.read()) return new Response("Not found", { status: 404 });
 
     const after = Number(new URL(request.url).searchParams.get("after"));
     const { 0: client, 1: server } = new WebSocketPair();
@@ -175,6 +192,7 @@ export class GameRoom extends DurableObject<Env> {
   }
 
   async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
+    if (this.liveGame.read()) return this.liveGame.alarm();
     const game = this.readGame();
     if (!game || game.status !== "running") return;
 

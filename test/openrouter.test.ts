@@ -59,6 +59,11 @@ describe("callOpenRouter", () => {
     });
   });
 
+  it("keeps missing usage cost unknown instead of recording zero", async () => {
+    respondWith(Response.json({ choices: [{ message: { content: "reply" } }] }));
+    expect(await call()).toMatchObject({ ok: true, cost: null });
+  });
+
   it.each([408, 429, 500, 503])("treats HTTP %i as retryable", async (status) => {
     respondWith(new Response("nope", { status }));
 

@@ -42,7 +42,7 @@ The operator wants hands-on learning of agentic workflows across the whole build
 | F-01 | deploy-skeleton | (foundation) app runs on the chosen platform at a public URL, deploys on merge, and its logs are readable | — | NFR: Archive kept indefinitely (survives redeploys); infrastructure.md | done |
 | F-02 | game-room-turn-loop-spike | (foundation) a dummy multi-turn game room is proven to survive eviction and redeploy, broadcast live, and never re-bill a retried turn | F-01 | NFR: Games finish in bounded time; NFR: Spend never overshoots; NFR: Live feels live | done |
 | S-01 | access-key-gate | operator reaches the app only with the access key and can rotate it | F-01 | FR-001 | done |
-| S-02 | first-live-ai-game | operator starts a fixed-setup all-AI game and watches it live until one side wins, with roles revealed at the end | F-02, S-01 | US-01, FR-005, FR-006, FR-007 | proposed |
+| S-02 | first-live-ai-game | operator starts a fixed-setup all-AI game and watches it live until one side wins, with roles revealed at the end | F-02, S-01 | US-01, FR-005, FR-006, FR-007 | in-progress |
 | S-03 | game-record-with-reasoning | operator reopens a finished game and reads the public transcript with each agent's private rationale beside it | S-02 | US-01, FR-009 | proposed |
 | S-04 | spectator-role-visibility | spectator toggles between hidden and shown roles while watching | S-02 | US-01, FR-008 | proposed |
 | S-05 | custom-table-composition | operator sets 5–9 seats and the role mix (by hand or randomized within the balance rule), with Witch, Hunter and Guard playable | S-02 | US-01, FR-002, FR-005 | proposed |
@@ -128,10 +128,9 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Parallel with:** —
 - **Blockers:** —
 - **Unknowns:**
-  - Exact turn protocol: what each agent receives per phase so that no agent sees information its role should not know. Owner: user. Block: no (resolve in `/10x-plan`).
-  - Interim safety cap on spend until S-07 lands. Owner: user. Block: no.
+  - None for implementation; the resolved information boundaries and interim safety allowance are described in [README.md](../../README.md#live-werewolf-game). Deployed acceptance remains pending in the change's verification record.
 - **Risk:** The riskiest slice in the milestone: hidden-info leaks, games that never end, and live lag all surface here first. The fixed setup and the single special role keep it thin enough to plan in one go.
-- **Status:** proposed
+- **Status:** in-progress — implemented locally; production acceptance pending (`context/changes/first-live-ai-game/verification.md`).
 
 ### S-03: Game record with private reasoning
 
@@ -254,7 +253,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 | F-01 | deploy-skeleton | Run the scaffold on the chosen platform with auto-deploy on merge | yes | Run `/10x-plan deploy-skeleton` |
 | F-02 | game-room-turn-loop-spike | Spike: retry-safe, deploy-surviving game-room turn loop | no | Needs F-01 |
 | S-01 | access-key-gate | Gate the app behind a rotatable access key | no | Needs F-01 |
-| S-02 | first-live-ai-game | Watch a fixed-setup all-AI game live to the end | no | Needs F-02, S-01 |
+| S-02 | first-live-ai-game | Watch a fixed-setup all-AI game live to the end | yes | Implemented locally; deployed acceptance pending in `context/changes/first-live-ai-game/` |
 | S-03 | game-record-with-reasoning | Game record: transcript with per-agent private rationale | no | Needs S-02 |
 | S-04 | spectator-role-visibility | Spectator toggle for hidden/shown roles | no | Needs S-02 |
 | S-05 | custom-table-composition | Configurable seats and roles incl. Witch, Hunter, Guard | no | Needs S-02 |
