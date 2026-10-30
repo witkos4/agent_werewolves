@@ -42,7 +42,7 @@ The operator wants hands-on learning of agentic workflows across the whole build
 | F-01 | deploy-skeleton | (foundation) app runs on the chosen platform at a public URL, deploys on merge, and its logs are readable | — | NFR: Archive kept indefinitely (survives redeploys); infrastructure.md | done |
 | F-02 | game-room-turn-loop-spike | (foundation) a dummy multi-turn game room is proven to survive eviction and redeploy, broadcast live, and never re-bill a retried turn | F-01 | NFR: Games finish in bounded time; NFR: Spend never overshoots; NFR: Live feels live | done |
 | S-01 | access-key-gate | operator reaches the app only with the access key and can rotate it | F-01 | FR-001 | done |
-| S-02 | first-live-ai-game | operator starts a fixed-setup all-AI game and watches it live until one side wins, with roles revealed at the end | F-02, S-01 | US-01, FR-005, FR-006, FR-007 | in-progress |
+| S-02 | first-live-ai-game | operator starts a fixed-setup all-AI game and watches it live until one side wins, with roles revealed at the end | F-02, S-01 | US-01, FR-005, FR-006, FR-007 | done |
 | S-03 | game-record-with-reasoning | operator reopens a finished game and reads the public transcript with each agent's private rationale beside it | S-02 | US-01, FR-009 | proposed |
 | S-04 | spectator-role-visibility | spectator toggles between hidden and shown roles while watching | S-02 | US-01, FR-008 | proposed |
 | S-05 | custom-table-composition | operator sets 5–9 seats and the role mix (by hand or randomized within the balance rule), with Witch, Hunter and Guard playable | S-02 | US-01, FR-002, FR-005 | proposed |
@@ -128,9 +128,9 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Parallel with:** —
 - **Blockers:** —
 - **Unknowns:**
-  - None for implementation; the resolved information boundaries and interim safety allowance are described in [README.md](../../README.md#live-werewolf-game). Deployed acceptance remains pending in the change's verification record.
+  - None for implementation; the resolved information boundaries and interim safety allowance are described in [README.md](../../README.md#live-werewolf-game). Deployed acceptance is recorded in the archived change's verification record.
 - **Risk:** The riskiest slice in the milestone: hidden-info leaks, games that never end, and live lag all surface here first. The fixed setup and the single special role keep it thin enough to plan in one go.
-- **Status:** in-progress — implemented locally; production acceptance pending (`context/changes/first-live-ai-game/verification.md`).
+- **Status:** done
 
 ### S-03: Game record with private reasoning
 
@@ -253,11 +253,11 @@ Foundations below assume these are present and do NOT re-scaffold them.
 | F-01 | deploy-skeleton | Run the scaffold on the chosen platform with auto-deploy on merge | yes | Run `/10x-plan deploy-skeleton` |
 | F-02 | game-room-turn-loop-spike | Spike: retry-safe, deploy-surviving game-room turn loop | no | Needs F-01 |
 | S-01 | access-key-gate | Gate the app behind a rotatable access key | no | Needs F-01 |
-| S-02 | first-live-ai-game | Watch a fixed-setup all-AI game live to the end | yes | Implemented locally; deployed acceptance pending in `context/changes/first-live-ai-game/` |
-| S-03 | game-record-with-reasoning | Game record: transcript with per-agent private rationale | no | Needs S-02 |
-| S-04 | spectator-role-visibility | Spectator toggle for hidden/shown roles | no | Needs S-02 |
-| S-05 | custom-table-composition | Configurable seats and roles incl. Witch, Hunter, Guard | no | Needs S-02 |
-| S-06 | mixed-model-seats-and-personas | Per-seat models and personalities (manual or pooled) | no | Needs S-02 |
+| S-02 | first-live-ai-game | Watch a fixed-setup all-AI game live to the end | no | Done; archived in `context/archive/2026-10-29-first-live-ai-game/` |
+| S-03 | game-record-with-reasoning | Game record: transcript with per-agent private rationale | yes | Archive store decision first (see S-03 unknowns) |
+| S-04 | spectator-role-visibility | Spectator toggle for hidden/shown roles | yes | Unblocked by S-02 |
+| S-05 | custom-table-composition | Configurable seats and roles incl. Witch, Hunter, Guard | yes | Unblocked by S-02 |
+| S-06 | mixed-model-seats-and-personas | Per-seat models and personalities (manual or pooled) | yes | Unblocked by S-02 |
 | S-07 | spend-limit-and-estimate | Pre-game cost estimate, spend limit, budget abort | no | Needs S-03 |
 | S-08 | game-metrics | Per-model/role metrics with sample sizes | no | Needs S-03, S-06 |
 | S-09 | headless-batch-runs | Spend-capped headless batches with model rotation | no | Needs S-07, S-08 |
@@ -288,3 +288,4 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **F-01: (foundation) the existing scaffold runs on the platform chosen in infrastructure.md at a public URL. Merging to main deploys it automatically, and runtime logs can be read from the terminal.** — Archived 2026-10-19 → `context/archive/2026-10-18-deploy-skeleton/`. Lesson: —.
 - **F-02: (foundation) a throwaway three-turn game room proves turns chain across evictions and redeploys, broadcast live, and are billed once.** — Archived 2026-10-22 → `context/archive/2026-10-19-game-room-turn-loop-spike/`. Lesson: deploys let an in-flight DO alarm finish on old code, so a redeploy cannot force a retry; the no-re-bill proof moved to S-07.
 - **S-01: user can reach the app only after entering the access key, and the operator can rotate the key so the old one stops working immediately.** — Archived 2026-10-29 → `context/archive/2026-10-22-access-key-gate/`. Lesson: hibernated WebSockets outlive a key rotation (a running room can stay on the old version), so long-lived sockets need their own key fingerprint and age cap.
+- **S-02: user can start a fixed-setup all-AI game (Werewolves, Villagers and a Seer) and watch the night and day phases live until one side wins. Roles are revealed at the end.** — Archived 2026-10-29 → `context/archive/2026-10-29-first-live-ai-game/`. Lesson: a busy room keeps its version across redeploys, so production never exercised a mid-game restart; and five seats with one wolf give the village a single vote before parity (wolves won 3/3), so games are too short to measure much until S-05/S-06.
