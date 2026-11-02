@@ -127,9 +127,13 @@ export class LiveGame {
     if (!game || game.status === "running") return;
     const row = this.archiveRow();
     if (row?.status === "archived") return;
-    if (!row) this.queueArchive();
-    if (await this.ctx.storage.getAlarm() !== null) return;
-    await this.ctx.storage.setAlarm(Date.now() + archiveTuning.firstDelayMs);
+    try {
+      if (!row) this.queueArchive();
+      if (await this.ctx.storage.getAlarm() !== null) return;
+      await this.ctx.storage.setAlarm(Date.now() + archiveTuning.firstDelayMs);
+    } catch (error) {
+      console.log(JSON.stringify({ evt: "archive_rearm_failed", gameId: game.id, error: String(error) }));
+    }
   }
 
   /** The full record, private reasoning included. Terminal games only. */

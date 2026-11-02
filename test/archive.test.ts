@@ -151,6 +151,18 @@ describe("archive outbox", () => {
     expect((await counts(id)).games).toBe(1);
   });
 
+  it("still serves the room and its record when re-arming the archive fails", async () => {
+    const { room, id } = await start();
+    await playToFinish(room);
+    await runInDurableObject(room, async (_i, s) => { await s.storage.deleteAlarm(); });
+    await runInDurableObject(room, (_i, s) => {
+      vi.spyOn(s.storage, "setAlarm").mockRejectedValueOnce(new Error("alarm_unavailable"));
+    });
+    expect(await room.getLiveSnapshot()).toMatchObject({ game: { id, status: "finished" } });
+    expect(await room.getRecord()).toMatchObject({ archived: false, record: { status: "finished" } });
+    expect((await state(room)).alarm).not.toBeNull();
+  });
+
   it("queues a legacy terminal room that predates archiving when it is next opened", async () => {
     const { room, id } = await start();
     await runDurableObjectAlarm(room); // Aborts.
