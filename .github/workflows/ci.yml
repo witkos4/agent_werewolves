@@ -40,6 +40,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Additive-only migrations, applied before the code that needs them.
+      - name: Apply D1 migrations
+        run: npx wrangler d1 migrations apply ARCHIVE --remote
       - run: npm run deploy
       - name: Smoke test /healthz
         env:

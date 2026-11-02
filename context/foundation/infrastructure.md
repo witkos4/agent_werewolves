@@ -16,6 +16,8 @@ tech_stack:
 
 The game workload is the deciding constraint: 45-minute games, live spectator events within 2 s, and headless batches of 10–20 games. Of the six candidates, only Cloudflare provides stateful long-lived compute (Durable Objects plus WebSocket Hibernation), durable multi-step execution (Workflows, GA), and official React Router v8 support, all on a free tier with a $5/month realistic ceiling. It scored 10/10 on the agent-friendly criteria, best fits "minimize cost", and matches the tech-stack hand-off, which already planned game rooms as Durable Objects. Single-region and external-Postgres answers carry no penalty: Supabase connects through Hyperdrive.
 
+**Update 2026-11-02 (S-03):** the archive moved to **Cloudflare D1** (binding `ARCHIVE`, database `agent-werewolves-archive`), an operator decision. That retires the Supabase pause and Hyperdrive pooler risks below. The D1 limits that matter: 10 GB per database, 2 MB per row, and a `batch()` that runs as one transaction. Schema lives in `migrations/` (additive only) and CI applies it before each deploy.
+
 **Correction to `tech-stack.md`:** the hint `deployment_target: cloudflare-pages` should read **Cloudflare Workers (Static Assets)**. Cloudflare's Pages docs say "start new projects with Workers", and Durable Objects and Workflows must be exported from a Worker entry anyway.
 
 ### Interview constraints
@@ -26,7 +28,7 @@ The game workload is the deciding constraint: 45-minute games, live spectator ev
 | Cost vs DX | Minimize cost | Penalized Fly.io (no free tier) and Render's $7 floor |
 | Platform familiarity | None (leans Cloudflare as free; sees hyperscalers as paid) | No tie-break applied |
 | Geography | Single region | Edge is a non-factor; no penalty for single-region PaaS |
-| Co-located services | External providers fine | Supabase Postgres for the archive; co-location not weighted |
+| Co-located services | External providers fine | Supabase Postgres for the archive at research time; replaced by D1 on 2026-11-02 |
 
 ## Platform Comparison
 
@@ -104,7 +106,7 @@ It is the smoothest PaaS DX at a similar price (~$5–10/mo), with an MCP server
 2. **A game cannot be one long `async` loop.** An idle Durable Object is evicted after 70–140 s, and alarm handlers get at most 15 min and are retried at-least-once. The engine must be step-chained, and every turn must be idempotent. Otherwise a retry pays for the same LLM call twice and breaks the "spend never overshoots by more than one turn" guardrail.
 3. **"Free" is narrower than it looks.** The Free plan allows 10 ms of CPU per request (heavy SSR can exceed it) and 50 outbound calls per invocation. Whether the CPU cap applies to Durable Objects on Free is unverified. $5/mo Workers Paid is the realistic budget.
 4. **Lock-in.** Durable Objects, alarms, and Workflows are Cloudflare-proprietary. Moving the engine to a Node host later means rewriting orchestration, not just redeploying.
-5. **Postgres goes through Hyperdrive.** That means about 20 pooled connections, a 60 s query limit, and TCP drivers (`pg` / `postgres.js`) running under `nodejs_compat`, plus Supabase's own pooler: two pooling layers to debug.
+5. **(Superseded by D1, 2026-11-02.) Postgres goes through Hyperdrive.** That means about 20 pooled connections, a 60 s query limit, and TCP drivers (`pg` / `postgres.js`) running under `nodejs_compat`, plus Supabase's own pooler: two pooling layers to debug.
 
 ### Pre-Mortem — How This Could Fail
 
@@ -123,20 +125,20 @@ The team migrated the scaffold to Workers and wrote the engine as one `async` lo
 
 - **Preview deploys**:
   - `wrangler versions upload` creates a non-production version with its own preview URL (`<version>-<worker>.<subdomain>.workers.dev`). GitHub Actions runs it on every PR and comments the URL.
-  - Previews share production Durable Object namespaces unless a separate `env.preview` is defined in `wrangler.jsonc`. Use a separate preview environment with its own Durable Objects and a dev Supabase project.
+  - Previews share production Durable Object namespaces unless a separate `env.preview` is defined in `wrangler.jsonc`. Use a separate preview environment with its own Durable Objects and its own D1 database.
   - The app's access-key gate protects previews; add Cloudflare Access if a preview ever holds real data.
   - Fork PRs get no preview (no secrets).
 - **Secrets**:
-  - Runtime secrets live in Workers Secrets, set with `wrangler secret put ACCESS_KEY`, `OPENROUTER_API_KEY` / per-provider LLM keys, and `DATABASE_URL` (or a Hyperdrive binding).
-  - `CLOUDFLARE_API_TOKEN` (scoped to Workers edit for this account) and `CLOUDFLARE_ACCOUNT_ID` live in GitHub Actions secrets.
+  - Runtime secrets live in Workers Secrets, set with `wrangler secret put ACCESS_KEY`, `OPENROUTER_API_KEY` / per-provider LLM keys, The D1 archive is a binding, not a secret.
+  - `CLOUDFLARE_API_TOKEN` (scoped to Workers edit and D1 edit for this account) and `CLOUDFLARE_ACCOUNT_ID` live in GitHub Actions secrets.
   - Local dev uses `.dev.vars`, which is gitignored.
   - Rotating the access key (FR-001) means `wrangler secret put ACCESS_KEY`. It deploys a new version, so within seconds the old key, every session signed with it, and open viewer sockets stop working.
 - **Rollback**:
   - `wrangler deployments list`, then `wrangler rollback <version-id>`. It is instant (seconds) and needs no rebuild.
-  - Caveats: rollback is blocked if the release added a Durable Object migration. Supabase schema migrations don't roll back. Running games restart from their last SQLite checkpoint.
+  - Caveats: rollback is blocked if the release added a Durable Object migration. D1 migrations don't roll back, so they are additive only, which keeps an older version compatible with the newer schema. Running games restart from their last SQLite checkpoint.
 - **Approval**:
-  - **An agent may do unattended:** `wrangler versions upload` (previews), `wrangler tail`, `wrangler deployments list`, read-only Supabase queries, and deploys to a preview environment.
-  - **A human approves:** production deploys (merge to `main` triggers auto-deploy per `ci_default_flow`), `wrangler rollback` in production, any Durable Object migration, `wrangler secret put` on production, Supabase schema migrations, deleting archived games, and switching the Workers plan.
+  - **An agent may do unattended:** `wrangler versions upload` (previews), `wrangler tail`, `wrangler deployments list`, read-only D1 queries (`wrangler d1 execute --remote` with `SELECT`), and deploys to a preview environment.
+  - **A human approves:** production deploys (merge to `main` triggers auto-deploy per `ci_default_flow`), `wrangler rollback` in production, any Durable Object migration, `wrangler secret put` on production, D1 schema migrations (merging the PR approves them; CI applies them), deleting archived games, and switching the Workers plan.
 - **Logs**:
   - `wrangler tail agent-werewolves --format json --status error` for a live tail.
   - Workers Logs (`observability.enabled: true`) for history in the dashboard and through the Cloudflare MCP server (`mcp.cloudflare.com/mcp`).
@@ -153,8 +155,8 @@ The team migrated the scaffold to Workers and wrote the engine as one `async` lo
 | `wrangler rollback` blocked by a DO migration | Unknown unknowns | M | M | Keep DO classes stable: one `GameRoom` class, with schema changes inside its SQLite (versioned migrations in code), not class renames. Ship DO migrations in their own release. |
 | React Router v8 context mismatch with Cloudflare docs/template (v7 `AppLoadContext`) | Unknown unknowns / Research finding | H | L | Use the v8 `RouterContextProvider` + `createContext()` pattern (see Getting Started). Don't copy `workers/app.ts` from the Cloudflare starter verbatim. |
 | Free plan's 10 ms CPU limit / 50 subrequests trip on SSR or long turns | Devil's advocate | M | M | Start on Free for wiring. Move to Workers Paid ($5/mo) before the first real batch. Watch `exceededCpu` in `wrangler tail`. |
-| Supabase free project pauses after inactivity, so archive writes fail | Pre-mortem | M | H | Verify current Supabase free-tier pause rules. Buffer finished games in DO SQLite until archived (outbox pattern) so "games are never lost" holds even if Postgres is down. Add a weekly cron Worker ping, or use D1 as a fallback. |
-| Hyperdrive + Supabase pooler connection issues | Devil's advocate | M | M | Connect Hyperdrive to Supabase's direct/session connection string, not the transaction pooler. Use `postgres.js` with `prepare: false` if pooled. Keep archive writes batched per game. |
+| ~~Supabase free project pauses after inactivity, so archive writes fail~~ Retired 2026-11-02: archive is D1. Archive writes can still fail, so the outbox stays | Pre-mortem | L | H | Game rooms keep terminal games in DO SQLite and retry the D1 write on their alarm until it lands (outbox pattern), so "games are never lost" holds through a D1 outage. |
+| ~~Hyperdrive + Supabase pooler connection issues~~ Retired 2026-11-02: archive is D1 | Devil's advocate | — | — | Connect Hyperdrive to Supabase's direct/session connection string, not the transaction pooler. Use `postgres.js` with `prepare: false` if pooled. Keep archive writes batched per game. |
 | Cloudflare lock-in (DO/Workflows) makes a later move expensive | Devil's advocate | L | M | Keep game rules and agent prompting in a pure TS `engine/` module with no Cloudflare imports. Only a thin `workers/` adapter touches DOs, alarms, and Workflows. |
 | LLM SDK depends on Node APIs unsupported by workerd | Unknown unknowns | M | L | Prefer fetch-based clients (OpenRouter / provider REST, Vercel AI SDK core). Smoke-test each provider call in `npm run dev` (runs in workerd). |
 | Workflows Free limits (3,000 steps/day, 1,024 steps per workflow) cap batch size | Research finding | M | M | One step per turn (not per LLM call) keeps a 9-player game well under 1,024 steps. Batches of 20 may exceed 3,000 steps/day on Free, which is another reason for Paid before batches. |

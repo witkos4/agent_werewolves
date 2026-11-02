@@ -1,4 +1,9 @@
+import { applyD1Migrations } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, vi } from "vitest";
+
+// Idempotent: records applied migrations in the database itself.
+await applyD1Migrations(env.ARCHIVE, env.TEST_MIGRATIONS ?? []);
 
 // Tests never reach the network: any fetch a test has not stubbed fails loudly.
 beforeEach(() => {

@@ -12,6 +12,7 @@ Requires Node `>=22.22.0`.
 
 ```bash
 npm install
+npm run db:migrate:local   # once, and after adding a migration
 npm run dev   # http://localhost:5173, runs in the Workers runtime
 npm test      # Workers-runtime tests; never call the network
 ```
@@ -36,7 +37,7 @@ npm run preview     # serve the production build locally
 
 ## Deploy
 
-- **Automatic:** every push to `main` runs `.github/workflows/ci.yml`. It typechecks, runs the tests, builds, deploys, then smoke-tests `/healthz`. PRs run the same checks plus `wrangler deploy --dry-run`, without deploying.
+- **Automatic:** every push to `main` runs `.github/workflows/ci.yml`. It typechecks, runs the tests, builds, applies D1 migrations, deploys, then smoke-tests `/healthz`. PRs run the same checks plus `wrangler deploy --dry-run`, without deploying.
 - **Runtime secrets:** `wrangler.jsonc` lists `OPENROUTER_API_KEY` and `ACCESS_KEY` under `secrets.required`, so a real deploy fails until both exist in production. Check with `npx wrangler secret list`; set with `npx wrangler secret put <NAME>`.
 - **Manual:** `npm run deploy` (needs `npx wrangler login` or the env vars below).
 
@@ -84,6 +85,20 @@ npx wrangler rollback <previous-version-id>
 Then check `/healthz` reports that version. To roll forward, re-run the latest `main` workflow or `npm run deploy`.
 
 **Rollback cannot cross the first Durable Object migration** (`GameRoom`, tag `v1`). Once a version with it is live, `wrangler rollback` to an older version is refused. Fix forward instead, and never remove the `GameRoom` export or its migration entry: schema changes go through the in-code `schema_version` migrations in `workers/game-room.ts`.
+
+## Database
+
+Terminal games are archived in Cloudflare D1: binding `ARCHIVE`, database `agent-werewolves-archive`, schema in [`migrations/`](migrations/).
+
+- **Created once** by a human: `npx wrangler d1 create agent-werewolves-archive`, then commit its `database_id` in `wrangler.jsonc`.
+- **Migrations are additive only.** Never drop or rename a table or column. D1 migrations can't be rolled back, and an older Worker version must keep working against the newer schema. CI runs `wrangler d1 migrations apply ARCHIVE --remote` before each deploy, so merging a PR approves its migration. The CI token needs D1 edit permission.
+- **Locally**, `npm run db:migrate:local` applies them to the dev database; tests apply them on their own.
+- **Query production** (read-only):
+
+  ```bash
+  npx wrangler d1 execute agent-werewolves-archive --remote \
+    --command "SELECT id, status, winner, turns, total_cost_usd FROM games ORDER BY ended_at DESC LIMIT 20"
+  ```
 
 ## Live Werewolf game
 
