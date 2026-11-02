@@ -291,10 +291,10 @@ A record is around 30–60 KB of state JSON plus about 40 rows, well within D1's
 
 #### Automated
 
-- [x] 1.1 Type checking passes with the new binding
-- [x] 1.2 Schema test passes and the existing suite stays green
-- [x] 1.3 Build and dry-run deploy pass
-- [x] 1.4 Local migration applies cleanly
+- [x] 1.1 Type checking passes with the new binding — b892623
+- [x] 1.2 Schema test passes and the existing suite stays green — b892623
+- [x] 1.3 Build and dry-run deploy pass — b892623
+- [x] 1.4 Local migration applies cleanly — b892623
 
 #### Manual
 
@@ -305,10 +305,10 @@ A record is around 30–60 KB of state JSON plus about 40 rows, well within D1's
 
 #### Automated
 
-- [ ] 2.1 Projection tests pass
-- [ ] 2.2 Outbox tests pass
-- [ ] 2.3 Live privacy regression passes
-- [ ] 2.4 Typecheck passes
+- [x] 2.1 Projection tests pass
+- [x] 2.2 Outbox tests pass
+- [x] 2.3 Live privacy regression passes
+- [x] 2.4 Typecheck passes
 
 ### Phase 3: Record page and recent games list
 

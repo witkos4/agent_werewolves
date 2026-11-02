@@ -1,8 +1,16 @@
 import { callLlm, type LlmResult } from "../llm/client";
+import { writeArchive } from "./archive";
 import { applyMove, buildRequest, createGame, INPUT_RATE_CEILING, MAX_OUTPUT_TOKENS, MODEL, OUTPUT_RATE_CEILING, publicGame, SAFETY_USD, validateMove, type Game, type PublicGame } from "./engine";
+import { buildRecord, type GameRecord } from "./record";
 
 export const liveTuning = { firstDelayMs: 0, nextDelayMs: 250, timeoutMs: 30_000, quietMs: 45_000, maxAttempts: 3 };
+/**
+ * The first archive attempt runs `firstDelayMs` after a game ends; failures back
+ * off from `retryBaseMs` ×4 per attempt, capped at `retryMaxMs`, forever.
+ */
+export const archiveTuning = { firstDelayMs: 0, retryBaseMs: 30_000, retryMaxMs: 3_600_000 };
 type Turn = { turn_no: number; body: string; attempts: number; last_attempt_at: number | null; status: string };
+type ArchiveRow = { status: "pending" | "archived"; attempts: number };
 export type Snapshot = { seq: number; game: PublicGame };
 export type LiveStartResult = { ok: true } | { ok: false; status: number; error: string };
 
@@ -43,6 +51,10 @@ export class LiveGame {
         turn_no INTEGER PRIMARY KEY, body TEXT NOT NULL, status TEXT NOT NULL,
         attempts INTEGER NOT NULL DEFAULT 0, last_attempt_at INTEGER,
         response_text TEXT, cost REAL, generation_id TEXT, latency_ms INTEGER
+      );
+      CREATE TABLE IF NOT EXISTS live_archive (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1), status TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, archived_at INTEGER
       );
     `);
   }
@@ -88,9 +100,70 @@ export class LiveGame {
 
   private async abort(game: Game, reason: string) {
     game = { ...game, status: "aborted", abortReason: reason, queue: [] };
-    const notify = this.ctx.storage.transactionSync(() => this.save(game, "aborted"));
-    await this.ctx.storage.deleteAlarm();
+    const notify = this.ctx.storage.transactionSync(() => {
+      this.queueArchive();
+      return this.save(game, "aborted");
+    });
+    await this.ctx.storage.setAlarm(Date.now() + archiveTuning.firstDelayMs);
     notify();
+  }
+
+  /** Outbox entry; committed in the same transaction as the terminal state. */
+  private queueArchive() {
+    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO live_archive(singleton, status) VALUES (1, 'pending')");
+  }
+
+  private archiveRow(): ArchiveRow | null {
+    return this.ctx.storage.sql.exec<ArchiveRow>("SELECT status, attempts FROM live_archive").toArray()[0] ?? null;
+  }
+
+  /**
+   * Called on every read. A terminal room without an outbox entry finished
+   * before archiving existed; queue it so it archives on its next alarm.
+   */
+  async touch(): Promise<void> {
+    const game = this.read();
+    if (!game || game.status === "running" || this.archiveRow()) return;
+    this.queueArchive();
+    await this.ctx.storage.setAlarm(Date.now() + archiveTuning.firstDelayMs);
+  }
+
+  /** The full record, private reasoning included. Terminal games only. */
+  record(): { record: GameRecord; archived: boolean } | null {
+    const game = this.read();
+    if (!game || game.status === "running") return null;
+    return { record: this.buildRecord(game), archived: this.archiveRow()?.status === "archived" };
+  }
+
+  private buildRecord(game: Game): GameRecord {
+    const sql = this.ctx.storage.sql;
+    const turns = sql.exec<{ turn_no: number; cost: number | null; latency_ms: number | null; attempts: number; generation_id: string | null }>(
+      "SELECT turn_no, cost, latency_ms, attempts, generation_id FROM live_turns WHERE status = 'done' ORDER BY turn_no",
+    ).toArray().map(t => ({ turnNo: t.turn_no, costUsd: t.cost, latencyMs: t.latency_ms, attempts: t.attempts, generationId: t.generation_id }));
+    const ended = sql.exec<{ created_at: number }>("SELECT created_at FROM events WHERE type IN ('finished', 'aborted') ORDER BY seq DESC LIMIT 1").toArray()[0];
+    const reservedUsd = sql.exec<{ reserved_usd: number }>("SELECT reserved_usd FROM live_game").one().reserved_usd;
+    return buildRecord(game, turns, { endedAt: ended?.created_at ?? game.createdAt, reservedUsd });
+  }
+
+  /** Writes the record to D1; on failure retries on the alarm with backoff, indefinitely. */
+  private async archive(game: Game) {
+    const row = this.archiveRow();
+    if (row?.status !== "pending") return;
+    try {
+      if (!this.env.ARCHIVE) throw new Error("archive_unbound");
+      await writeArchive(this.env.ARCHIVE, this.buildRecord(game), JSON.stringify(game), Date.now());
+    } catch (error) {
+      const attempts = row.attempts + 1;
+      this.ctx.storage.sql.exec("UPDATE live_archive SET attempts = ?, last_error = ?", attempts, String(error).slice(0, 500));
+      const delay = Math.min(archiveTuning.retryBaseMs * 4 ** (attempts - 1), archiveTuning.retryMaxMs);
+      console.log(JSON.stringify({ evt: "archive_failed", gameId: game.id, attempts, retryInMs: delay, error: String(error) }));
+      await this.ctx.storage.setAlarm(Date.now() + delay);
+      return;
+    }
+    // Only after D1 committed; a crash before this line re-runs a no-op batch.
+    this.ctx.storage.sql.exec("UPDATE live_archive SET status = 'archived', archived_at = ?, last_error = NULL", Date.now());
+    await this.ctx.storage.deleteAlarm();
+    console.log(JSON.stringify({ evt: "game_archived", gameId: game.id, attempts: row.attempts + 1 }));
   }
 
   async alarm(): Promise<void> {
@@ -98,7 +171,8 @@ export class LiveGame {
     this.inFlight = true;
     try {
       const game = this.read();
-      if (!game || game.status !== "running") return;
+      if (!game) return;
+      if (game.status !== "running") return await this.archive(game);
       if (Date.now() >= game.deadlineAt) return await this.abort(game, "time_limit");
       await this.run(game);
     } catch {
@@ -157,10 +231,11 @@ export class LiveGame {
     const notify = this.ctx.storage.transactionSync(() => {
       sql.exec("UPDATE live_turns SET status = 'done', response_text = ?, cost = ?, generation_id = ?, latency_ms = ? WHERE turn_no = ?",
         result.text, result.cost, result.generationId, result.latencyMs, game.turn);
+      if (next.status !== "running") this.queueArchive();
       return this.save(next, next.status === "finished" ? "finished" : "turn");
     });
     if (next.status === "running") await this.schedule(next, Date.now() + liveTuning.nextDelayMs);
-    else await this.ctx.storage.deleteAlarm();
+    else await this.ctx.storage.setAlarm(Date.now() + archiveTuning.firstDelayMs);
     notify();
   }
 }

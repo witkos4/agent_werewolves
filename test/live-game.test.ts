@@ -6,7 +6,7 @@ import { SOCKET_EXPIRED_CLOSE_CODE, tuning } from "../workers/game-room";
 import type { Game } from "../workers/game/engine";
 import { MODEL } from "../workers/game/engine";
 import { liveRoom, handleGameRequest } from "../workers/game/routes";
-import { liveTuning } from "../workers/game/runtime";
+import { archiveTuning, liveTuning } from "../workers/game/runtime";
 import { setLlmCall, type LlmCall } from "../workers/llm/client";
 
 const defaults = { ...liveTuning };
@@ -18,11 +18,13 @@ const ok = (text: string, cost: number | null = 0.0001) => ({ ok: true as const,
 
 beforeEach(() => {
   Object.assign(liveTuning, { firstDelayMs: HOUR, nextDelayMs: HOUR, timeoutMs: 100 });
+  // A due alarm fires on its own; keep terminal rooms' archive alarm out of the way.
+  archiveTuning.firstDelayMs = HOUR;
   vi.mocked(fetch).mockImplementation(async () => catalog());
   calls = 0;
   previous = setLlmCall(async () => { calls++; return ok("invalid"); });
 });
-afterEach(() => { Object.assign(liveTuning, defaults); setLlmCall(previous); });
+afterEach(() => { Object.assign(liveTuning, defaults); archiveTuning.firstDelayMs = 0; setLlmCall(previous); });
 
 async function start() {
   const id = crypto.randomUUID();
@@ -132,7 +134,8 @@ describe("durable live games", () => {
     }
     expect(calls).toBe(3);
     expect((await room.getLiveSnapshot())!.game.abortReason).toBe("attempts_exhausted");
-    expect(await runInDurableObject(room, (_i, s) => s.storage.getAlarm())).toBeNull();
+    // No further turn: the only alarm left is the archive attempt.
+    expect(await runInDurableObject(room, (_i, s) => s.storage.getAlarm())).toBeGreaterThan(Date.now() + HOUR - 60_000);
   });
 
   it("cancels a stalled call and reaches a terminal failure", async () => {
