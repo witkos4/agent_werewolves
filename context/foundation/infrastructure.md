@@ -129,7 +129,7 @@ The team migrated the scaffold to Workers and wrote the engine as one `async` lo
   - The app's access-key gate protects previews; add Cloudflare Access if a preview ever holds real data.
   - Fork PRs get no preview (no secrets).
 - **Secrets**:
-  - Runtime secrets live in Workers Secrets, set with `wrangler secret put ACCESS_KEY`, `OPENROUTER_API_KEY` / per-provider LLM keys, The D1 archive is a binding, not a secret.
+  - Runtime secrets live in Workers Secrets, set with `wrangler secret put ACCESS_KEY`, `OPENROUTER_API_KEY` / per-provider LLM keys. The D1 archive is a binding, not a secret.
   - `CLOUDFLARE_API_TOKEN` (scoped to Workers edit and D1 edit for this account) and `CLOUDFLARE_ACCOUNT_ID` live in GitHub Actions secrets.
   - Local dev uses `.dev.vars`, which is gitignored.
   - Rotating the access key (FR-001) means `wrangler secret put ACCESS_KEY`. It deploys a new version, so within seconds the old key, every session signed with it, and open viewer sockets stop working.

@@ -39,7 +39,7 @@ npm run preview     # serve the production build locally
 
 - **Automatic:** every push to `main` runs `.github/workflows/ci.yml`. It typechecks, runs the tests, builds, applies D1 migrations, deploys, then smoke-tests `/healthz`. PRs run the same checks plus `wrangler deploy --dry-run`, without deploying.
 - **Runtime secrets:** `wrangler.jsonc` lists `OPENROUTER_API_KEY` and `ACCESS_KEY` under `secrets.required`, so a real deploy fails until both exist in production. Check with `npx wrangler secret list`; set with `npx wrangler secret put <NAME>`.
-- **Manual:** `npm run deploy` (needs `npx wrangler login` or the env vars below).
+- **Manual:** `npx wrangler d1 migrations apply ARCHIVE --remote` (only if the release adds a migration; CI does this automatically), then `npm run deploy` (needs `npx wrangler login` or the env vars below).
 
 ## Access key
 
