@@ -305,17 +305,17 @@ A record is around 30–60 KB of state JSON plus about 40 rows, well within D1's
 
 #### Automated
 
-- [x] 2.1 Projection tests pass
-- [x] 2.2 Outbox tests pass
-- [x] 2.3 Live privacy regression passes
-- [x] 2.4 Typecheck passes
+- [x] 2.1 Projection tests pass — 1543d34
+- [x] 2.2 Outbox tests pass — 1543d34
+- [x] 2.3 Live privacy regression passes — 1543d34
+- [x] 2.4 Typecheck passes — 1543d34
 
 ### Phase 3: Record page and recent games list
 
 #### Automated
 
-- [ ] 3.1 Route tests pass
-- [ ] 3.2 Typecheck and build pass
+- [x] 3.1 Route tests pass
+- [x] 3.2 Typecheck and build pass
 
 #### Manual
 

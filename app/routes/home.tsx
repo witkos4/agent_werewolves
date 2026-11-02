@@ -1,5 +1,6 @@
-import { data, Form, redirect, useNavigation } from "react-router";
+import { data, Form, Link, redirect, useNavigation } from "react-router";
 import { cloudflareContext } from "../cloudflare-context";
+import { listRecentGames, type RecentGame } from "../../workers/game/archive";
 import { handleGameRequest } from "../../workers/game/routes";
 import { MODEL, SAFETY_USD } from "../../workers/game/engine";
 import type { Route } from "./+types/home";
@@ -14,8 +15,15 @@ export function meta({}: Route.MetaArgs) {
   ];
 }
 
-export function loader() {
-  return data({ requestId: crypto.randomUUID(), model: MODEL, safetyUsd: SAFETY_USD }, { headers: { "Cache-Control": "no-store" } });
+export async function loader({ context }: Route.LoaderArgs) {
+  // The start form must work even when the archive is unreachable.
+  let recent: RecentGame[] | null = null;
+  try {
+    recent = await listRecentGames(context.get(cloudflareContext).env.ARCHIVE, 20);
+  } catch (error) {
+    console.log(JSON.stringify({ evt: "archive_list_failed", error: String(error) }));
+  }
+  return data({ requestId: crypto.randomUUID(), model: MODEL, safetyUsd: SAFETY_USD, recent }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export function headers() { return { "Cache-Control": "no-store" }; }
@@ -62,6 +70,19 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
         </button>
         {actionData?.error && <p role="alert" className="text-red-600 dark:text-red-400">{actionData.error}</p>}
       </Form>
+      <section aria-label="Recent games">
+        <h2 className="mb-3 text-lg font-semibold">Recent games</h2>
+        {loaderData.recent === null ? <p className="text-sm text-gray-600 dark:text-gray-400">Archive unavailable.</p>
+          : loaderData.recent.length === 0 ? <p className="text-sm text-gray-600 dark:text-gray-400">No archived games yet.</p>
+          : <ol className="flex flex-col divide-y divide-gray-200 rounded-xl border border-gray-300 dark:divide-gray-800 dark:border-gray-700">
+            {loaderData.recent.map(game => <li key={game.id}>
+              <Link to={`/games/${game.id}`} className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-900">
+                <span className="font-semibold">{game.status === "finished" ? `${game.winner} win` : "Stopped"}</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">{game.days} {game.days === 1 ? "day" : "days"} · {game.model} · {new Date(game.endedAt).toISOString().slice(0, 16).replace("T", " ")} UTC</span>
+              </Link>
+            </li>)}
+          </ol>}
+      </section>
     </main>
   );
 }

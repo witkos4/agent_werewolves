@@ -3,17 +3,15 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GameRoom } from "../workers/game-room";
 import { listRecentGames, readArchivedRecord, writeArchive } from "../workers/game/archive";
-import { MODEL, type Game } from "../workers/game/engine";
-import { liveRoom } from "../workers/game/routes";
+import type { Game } from "../workers/game/engine";
 import { archiveTuning, liveTuning } from "../workers/game/runtime";
 import { setLlmCall, type LlmCall } from "../workers/llm/client";
+import { catalog, ok, playToFinish as play, startLiveGame as start } from "./live-helpers";
 
 const defaults = { ...liveTuning };
 const archiveDefaults = { ...archiveTuning };
 const HOUR = 3600_000;
 let previous: LlmCall;
-const catalog = () => Response.json({ data: [{ id: MODEL, pricing: { prompt: "0.00000025", completion: "0.0000015" } }] });
-const ok = (text: string) => ({ ok: true as const, text, cost: 0.0001, cacheHit: false, generationId: "gen", latencyMs: 5 });
 
 beforeEach(() => {
   Object.assign(liveTuning, { firstDelayMs: HOUR, nextDelayMs: HOUR, timeoutMs: 100 });
@@ -24,24 +22,7 @@ beforeEach(() => {
 });
 afterEach(() => { Object.assign(liveTuning, defaults); Object.assign(archiveTuning, archiveDefaults); setLlmCall(previous); });
 
-async function start() {
-  const id = crypto.randomUUID();
-  const room = liveRoom(env, id);
-  expect(await room.startLive(id, 1)).toEqual({ ok: true });
-  return { room, id };
-}
-
-/** Plays a stubbed game to a village win; the archive alarm is left pending. */
-async function playToFinish(room: DurableObjectStub<GameRoom>) {
-  const wolf = (await state(room)).game.players.find(p => p.role === "Werewolf")!.id;
-  setLlmCall(async request => {
-    const view = JSON.parse(JSON.parse(request.body).messages[1].content);
-    return ok(JSON.stringify(view.phase === "discuss" ? { text: "I have doubts.", rationale: "private-archive-rationale" }
-      : { target: view.actor.role !== "Werewolf" ? wolf : view.allowedTargets.at(-1), rationale: "private-archive-rationale" }));
-  });
-  for (let i = 0; i < 40 && (await state(room)).game.status === "running"; i++) await runDurableObjectAlarm(room);
-  expect((await state(room)).game.status).toBe("finished");
-}
+const playToFinish = (room: DurableObjectStub<GameRoom>) => play(room, "private-archive-rationale");
 
 function state(room: DurableObjectStub<GameRoom>) {
   return runInDurableObject(room, async (_i, s) => ({
