@@ -298,7 +298,7 @@ A record is around 30–60 KB of state JSON plus about 40 rows, well within D1's
 
 #### Manual
 
-- [ ] 1.5 Operator created the remote database and its database_id is committed
+- [x] 1.5 Operator created the remote database and its database_id is committed
 - [ ] 1.6 Operator confirmed the CI token has D1 edit permission
 
 ### Phase 2: Record projection and archive outbox
@@ -314,8 +314,8 @@ A record is around 30–60 KB of state JSON plus about 40 rows, well within D1's
 
 #### Automated
 
-- [x] 3.1 Route tests pass
-- [x] 3.2 Typecheck and build pass
+- [x] 3.1 Route tests pass — cf1d22a
+- [x] 3.2 Typecheck and build pass — cf1d22a
 
 #### Manual
 

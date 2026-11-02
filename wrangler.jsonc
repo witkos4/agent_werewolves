@@ -23,6 +23,7 @@
     {
       "binding": "ARCHIVE",
       "database_name": "agent-werewolves-archive",
+      "database_id": "945653e4-7fb0-4f10-bbe8-00281511661a",
       "migrations_dir": "migrations"
     }
   ],
