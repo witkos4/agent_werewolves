@@ -126,6 +126,19 @@ describe("archive outbox", () => {
     expect((await counts(id)).games).toBe(1);
   });
 
+  it("lets the platform retry when the terminal alarm write fails, then archives", async () => {
+    const { room, id } = await start();
+    await runInDurableObject(room, (_i, s) => {
+      const setAlarm = s.storage.setAlarm.bind(s.storage);
+      vi.spyOn(s.storage, "setAlarm").mockImplementationOnce(setAlarm).mockRejectedValueOnce(new Error("alarm_unavailable"));
+    });
+    await expect(runDurableObjectAlarm(room)).rejects.toThrow("alarm_unavailable");
+    expect((await state(room)).archive).toMatchObject({ status: "pending" });
+    await runInDurableObject(room, instance => instance.alarm());
+    expect((await state(room)).archive).toMatchObject({ status: "archived" });
+    expect((await counts(id)).games).toBe(1);
+  });
+
   it("re-arms a pending archive whose alarm was lost when the game ended", async () => {
     const { room, id } = await start();
     await playToFinish(room);

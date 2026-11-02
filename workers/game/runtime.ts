@@ -179,9 +179,10 @@ export class LiveGame {
       if (game.status !== "running") return await this.archive(game);
       if (Date.now() >= game.deadlineAt) return await this.abort(game, "time_limit");
       await this.run(game);
-    } catch {
+    } catch (error) {
       const game = this.read();
       if (game?.status === "running") await this.abort(game, "internal_error");
+      else if (game && this.archiveRow()?.status === "pending") throw error;
     } finally { this.inFlight = false; }
   }
 
