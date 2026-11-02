@@ -119,12 +119,16 @@ export class LiveGame {
 
   /**
    * Called on every read. A terminal room without an outbox entry finished
-   * before archiving existed; queue it so it archives on its next alarm.
+   * before archiving existed; queue it so it archives on its next alarm. A
+   * pending entry whose alarm was lost (a failed setAlarm) is re-armed here.
    */
   async touch(): Promise<void> {
     const game = this.read();
-    if (!game || game.status === "running" || this.archiveRow()) return;
-    this.queueArchive();
+    if (!game || game.status === "running") return;
+    const row = this.archiveRow();
+    if (row?.status === "archived") return;
+    if (!row) this.queueArchive();
+    if (await this.ctx.storage.getAlarm() !== null) return;
     await this.ctx.storage.setAlarm(Date.now() + archiveTuning.firstDelayMs);
   }
 

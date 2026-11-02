@@ -126,6 +126,18 @@ describe("archive outbox", () => {
     expect((await counts(id)).games).toBe(1);
   });
 
+  it("re-arms a pending archive whose alarm was lost when the game ended", async () => {
+    const { room, id } = await start();
+    await playToFinish(room);
+    await runInDurableObject(room, async (_i, s) => { await s.storage.deleteAlarm(); });
+    expect((await state(room)).alarm).toBeNull();
+    await room.getRecord();
+    expect((await state(room)).alarm).not.toBeNull();
+    expect(await runDurableObjectAlarm(room)).toBe(true);
+    expect((await state(room)).archive).toMatchObject({ status: "archived" });
+    expect((await counts(id)).games).toBe(1);
+  });
+
   it("queues a legacy terminal room that predates archiving when it is next opened", async () => {
     const { room, id } = await start();
     await runDurableObjectAlarm(room); // Aborts.

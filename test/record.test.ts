@@ -106,6 +106,12 @@ describe("game record projection", () => {
     expect(buildRecord(legacy, [], meta)).toEqual(buildRecord(game, [], meta));
   });
 
+  it("refuses a move whose public entry is missing", () => {
+    const game = villageWin();
+    const withoutNight1 = { ...game, transcript: game.transcript.filter(e => !(e.kind === "phase" && e.text.startsWith("Night 1"))) };
+    expect(() => buildRecord(withoutNight1, [], meta)).toThrow("record_unplaced_move");
+  });
+
   it("refuses running games and moves by unknown actors", () => {
     const game = target(setup(), "p1");
     expect(() => buildRecord(game, [], meta)).toThrow("record_of_running_game");

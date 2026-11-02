@@ -152,7 +152,28 @@ function LiveGame({ snapshot: loaderData }: { snapshot: Snapshot }) {
   );
 }
 
+/** Re-reads the loader with bounded backoff until the archive lands, then stops. */
+function useArchiveRefresh(archived: boolean) {
+  const { revalidate } = useRevalidator();
+  useEffect(() => {
+    if (archived) return;
+    const stopAt = Date.now() + 5 * 60_000;
+    let delay = 2_000;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = () => {
+      timer = setTimeout(() => {
+        revalidate();
+        delay = Math.min(delay * 2, 30_000);
+        if (Date.now() < stopAt) poll();
+      }, delay);
+    };
+    poll();
+    return () => clearTimeout(timer);
+  }, [archived, revalidate]);
+}
+
 function GameRecordView({ record, archived }: { record: GameRecord; archived: boolean }) {
+  useArchiveRefresh(archived);
   const name = (seat: string) => record.players.find(p => p.seat === seat)?.name ?? seat;
   const role = (seat: string) => record.players.find(p => p.seat === seat)?.role;
   return (

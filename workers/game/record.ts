@@ -115,6 +115,7 @@ export function buildRecord(
  * Transcript entries carry no turn numbers, so moves are placed by day and
  * phase: night actions after that day's night header, speeches onto their
  * speech entries (1:1, in order), individual votes after the voting header.
+ * A move that finds no public entry throws, so a mismatch fails loudly.
  */
 function timeline(game: Game, moves: RecordMove[]): TimelineItem[] {
   const used = new Set<number>();
@@ -137,8 +138,7 @@ function timeline(game: Game, moves: RecordMove[]): TimelineItem[] {
     if (entry.kind === "phase" && entry.text.startsWith("Night ")) pending(entry.day, ["investigate", "kill"]).forEach(emit);
     if (entry.kind === "phase" && entry.text.startsWith("Voting begins")) pending(entry.day, ["vote"]).forEach(emit);
   }
-  // Defensive: a move with no matching public entry still appears, in turn order.
-  moves.filter(m => !used.has(m.turnNo)).forEach(emit);
+  if (moves.some(m => !used.has(m.turnNo))) throw new Error("record_unplaced_move");
   return items;
 }
 
