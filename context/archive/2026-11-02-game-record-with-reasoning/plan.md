@@ -299,7 +299,7 @@ A record is around 30–60 KB of state JSON plus about 40 rows, well within D1's
 #### Manual
 
 - [x] 1.5 Operator created the remote database and its database_id is committed — e094bea
-- [ ] 1.6 Operator confirmed the CI token has D1 edit permission
+- [x] 1.6 Operator confirmed the CI token has D1 edit permission — f748ba6
 
 ### Phase 2: Record projection and archive outbox
 
@@ -319,18 +319,18 @@ A record is around 30–60 KB of state JSON plus about 40 rows, well within D1's
 
 #### Manual
 
-- [ ] 3.3 Record of a finished game reads clearly in dev
-- [ ] 3.4 A live game turns into its record when it ends
+- [x] 3.3 Record of a finished game reads clearly in dev — f748ba6
+- [x] 3.4 A live game turns into its record when it ends — f748ba6
 
 ### Phase 4: Production rollout and drill
 
 #### Automated
 
-- [ ] 4.1 CI applies migration 0001 remotely and deploys; healthz passes
-- [ ] 4.2 Remote D1 query lists the new game and the three drill games
+- [x] 4.1 CI applies migration 0001 remotely and deploys; healthz passes — f748ba6
+- [x] 4.2 Remote D1 query lists the new game and the three drill games — f748ba6
 
 #### Manual
 
-- [ ] 4.3 Operator plays one production game and sees its record
-- [ ] 4.4 Drill game URLs open as records and appear in the home list
-- [ ] 4.5 Rationale and move counts match between page and D1 for one game
+- [x] 4.3 Operator plays one production game and sees its record — f748ba6
+- [x] 4.4 Drill game URLs open as records and appear in the home list — f748ba6
+- [x] 4.5 Rationale and move counts match between page and D1 for one game — f748ba6
