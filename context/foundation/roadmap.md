@@ -3,7 +3,7 @@ project: Agent Werewolves
 version: 1
 status: draft
 created: 2026-10-18
-updated: 2026-10-29
+updated: 2026-11-02
 prd_version: 1
 main_goal: learn
 top_blocker: time
@@ -43,7 +43,7 @@ The operator wants hands-on learning of agentic workflows across the whole build
 | F-02 | game-room-turn-loop-spike | (foundation) a dummy multi-turn game room is proven to survive eviction and redeploy, broadcast live, and never re-bill a retried turn | F-01 | NFR: Games finish in bounded time; NFR: Spend never overshoots; NFR: Live feels live | done |
 | S-01 | access-key-gate | operator reaches the app only with the access key and can rotate it | F-01 | FR-001 | done |
 | S-02 | first-live-ai-game | operator starts a fixed-setup all-AI game and watches it live until one side wins, with roles revealed at the end | F-02, S-01 | US-01, FR-005, FR-006, FR-007 | done |
-| S-03 | game-record-with-reasoning | operator reopens a finished game and reads the public transcript with each agent's private rationale beside it | S-02 | US-01, FR-009 | proposed |
+| S-03 | game-record-with-reasoning | operator reopens a finished game and reads the public transcript with each agent's private rationale beside it | S-02 | US-01, FR-009 | in-progress |
 | S-04 | spectator-role-visibility | spectator toggles between hidden and shown roles while watching | S-02 | US-01, FR-008 | proposed |
 | S-05 | custom-table-composition | operator sets 5–9 seats and the role mix (by hand or randomized within the balance rule), with Witch, Hunter and Guard playable | S-02 | US-01, FR-002, FR-005 | proposed |
 | S-06 | mixed-model-seats-and-personas | operator seats different models and personalities at one table, by hand or drawn from a pool | S-02 | US-01, FR-003, FR-004 | proposed |
@@ -71,7 +71,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 
 - **Frontend:** present: SSR React app with a single welcome route (`app/root.tsx`, `app/routes.ts`), per tech-stack.md.
 - **Backend / API:** partial: SSR server only; no loaders, actions, or game logic.
-- **Data:** absent: no database driver, schema, or migrations (hosted Postgres planned per tech-stack.md).
+- **Data:** absent: no database driver, schema, or migrations (hosted Postgres planned per tech-stack.md; replaced by D1 in S-03).
 - **Auth:** absent: no access-key gate.
 - **Deploy / infra:** partial: a Node container file only. The platform is decided in `context/foundation/infrastructure.md` but not wired, and there is no CI workflow.
 - **Observability:** absent: no logging or error tracking (platform logs planned per infrastructure.md).
@@ -141,9 +141,9 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Parallel with:** S-04, S-05, S-06
 - **Blockers:** —
 - **Unknowns:**
-  - Whether the hosted Postgres free tier pauses inactive projects, which would threaten "games are never lost" (infrastructure.md risk register). Owner: user. Block: no.
+  - ~~Whether the hosted Postgres free tier pauses inactive projects.~~ Resolved 2026-11-02: the archive is Cloudflare D1 (operator decision), so no pause risk.
 - **Risk:** The first slice that persists games outside the game room, so the archive's durability assumptions are tested here. Rationale differs per model, so this slice must settle on one shared format.
-- **Status:** proposed
+- **Status:** in-progress
 
 ### S-04: Spectator role visibility toggle
 

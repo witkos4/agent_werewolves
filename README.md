@@ -12,6 +12,7 @@ Requires Node `>=22.22.0`.
 
 ```bash
 npm install
+npm run db:migrate:local   # once, and after adding a migration
 npm run dev   # http://localhost:5173, runs in the Workers runtime
 npm test      # Workers-runtime tests; never call the network
 ```
@@ -36,9 +37,9 @@ npm run preview     # serve the production build locally
 
 ## Deploy
 
-- **Automatic:** every push to `main` runs `.github/workflows/ci.yml`. It typechecks, runs the tests, builds, deploys, then smoke-tests `/healthz`. PRs run the same checks plus `wrangler deploy --dry-run`, without deploying.
+- **Automatic:** every push to `main` runs `.github/workflows/ci.yml`. It typechecks, runs the tests, builds, applies D1 migrations, deploys, then smoke-tests `/healthz`. PRs run the same checks plus `wrangler deploy --dry-run`, without deploying.
 - **Runtime secrets:** `wrangler.jsonc` lists `OPENROUTER_API_KEY` and `ACCESS_KEY` under `secrets.required`, so a real deploy fails until both exist in production. Check with `npx wrangler secret list`; set with `npx wrangler secret put <NAME>`.
-- **Manual:** `npm run deploy` (needs `npx wrangler login` or the env vars below).
+- **Manual:** `npx wrangler d1 migrations apply ARCHIVE --remote` (only if the release adds a migration; CI does this automatically), then `npm run deploy` (needs `npx wrangler login` or the env vars below).
 
 ## Access key
 
@@ -85,6 +86,20 @@ Then check `/healthz` reports that version. To roll forward, re-run the latest `
 
 **Rollback cannot cross the first Durable Object migration** (`GameRoom`, tag `v1`). Once a version with it is live, `wrangler rollback` to an older version is refused. Fix forward instead, and never remove the `GameRoom` export or its migration entry: schema changes go through the in-code `schema_version` migrations in `workers/game-room.ts`.
 
+## Database
+
+Terminal games are archived in Cloudflare D1: binding `ARCHIVE`, database `agent-werewolves-archive`, schema in [`migrations/`](migrations/).
+
+- **Created once** by a human: `npx wrangler d1 create agent-werewolves-archive`, then commit its `database_id` in `wrangler.jsonc`.
+- **Migrations are additive only.** Never drop or rename a table or column. D1 migrations can't be rolled back, and an older Worker version must keep working against the newer schema. CI runs `wrangler d1 migrations apply ARCHIVE --remote` before each deploy, so merging a PR approves its migration. The CI token needs D1 edit permission.
+- **Locally**, `npm run db:migrate:local` applies them to the dev database; tests apply them on their own.
+- **Query production** (read-only):
+
+  ```bash
+  npx wrangler d1 execute agent-werewolves-archive --remote \
+    --command "SELECT id, status, winner, turns, total_cost_usd FROM games ORDER BY ended_at DESC LIMIT 20"
+  ```
+
 ## Live Werewolf game
 
 Sign in and select **Start a game** on the home page. The fixed table has five shuffled seats: one Werewolf, one Seer and three Villagers. All seats use `google/gemini-3.1-flash-lite` through the existing OpenRouter key. Choose one or two discussion rounds per day before starting.
@@ -93,7 +108,9 @@ The Seer investigates before the night kill resolves. Each living player speaks 
 
 Games run one saved model attempt per Durable Object alarm and stop after 45 minutes, three failed attempts on one turn, an invalid move, context overflow, or the safety allowance. The room reserves a conservative allowance **before every attempt**, including retries and ambiguous failures, against a fixed $0.25 per-game ceiling. Successful calls do not release reservations. Starting checks the public model pricing catalog; provider routing also enforces input/output rate ceilings. This safety allowance is not a cost estimate or an account-wide spending cap. Operator budgets and cost estimates remain S-07.
 
-Agent requests include public history and that agent's own private information only. Snapshot APIs and WebSockets carry the public projection; private model prompts, investigations and rationale remain inside the room. The later record/archive slices will add external archival and reasoning inspection. For now keep the viewer URL to reopen a room; there is no archive list.
+Agent requests include public history and that agent's own private information only. Snapshot APIs and WebSockets carry the public projection; private model prompts, investigations and rationale never leave the room while a game runs.
+
+**Game record (S-03).** When a game finishes or aborts, `/games/<uuid>` turns into its record: every role, and one timeline with each agent's private rationale beside its speech and each individual vote, plus night investigations and kills marked *Private*. Every model gives the same kind of rationale: the short private summary each move's JSON contract requires (native model reasoning is disabled). The room writes the record to the [D1 archive](#database) in one idempotent batch on its alarm. If D1 fails it retries with backoff (30 s, ×4, capped at 1 h, forever), and `wrangler tail` shows `archive_failed` / `game_archived`. Until the write lands, the page renders the same record from the room with an **Archiving…** badge. Rooms that ended before archiving existed queue themselves when next opened. Home lists the 20 most recently archived games; filtering is S-10.
 
 Script API (requires the same bearer key as the rest of the app):
 

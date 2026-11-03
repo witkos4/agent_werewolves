@@ -17,6 +17,16 @@
   "secrets": {
     "required": ["OPENROUTER_API_KEY", "ACCESS_KEY"]
   },
+  // Archive of terminal games. Migrations in ./migrations are additive only;
+  // CI applies them before each deploy.
+  "d1_databases": [
+    {
+      "binding": "ARCHIVE",
+      "database_name": "agent-werewolves-archive",
+      "database_id": "945653e4-7fb0-4f10-bbe8-00281511661a",
+      "migrations_dir": "migrations"
+    }
+  ],
   "durable_objects": {
     "bindings": [{ "name": "GAME_ROOM", "class_name": "GameRoom" }]
   },

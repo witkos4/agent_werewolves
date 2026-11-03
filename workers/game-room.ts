@@ -4,6 +4,7 @@ import { keyFingerprint } from "../app/access.server";
 import { callLlm, type LlmResult } from "./llm/client";
 import { buildTurnRequest } from "./spike/story";
 import { LiveGame, type LiveStartResult, type Snapshot } from "./game/runtime";
+import type { GameRecord } from "./game/record";
 
 /** Loop limits. Mutable only so tests can shrink the waits. */
 export const tuning = {
@@ -155,8 +156,15 @@ export class GameRoom extends DurableObject<Env> {
     return this.liveGame.start(gameId, discussionPasses);
   }
 
-  getLiveSnapshot(): Snapshot | null {
+  async getLiveSnapshot(): Promise<Snapshot | null> {
+    await this.liveGame.touch();
     return this.liveGame.snapshot();
+  }
+
+  /** Full record with private reasoning, for the gated record page. Null while running. */
+  async getRecord(): Promise<{ record: GameRecord; archived: boolean } | null> {
+    await this.liveGame.touch();
+    return this.liveGame.record();
   }
 
   /**

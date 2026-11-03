@@ -1,23 +1,53 @@
 import { useEffect, useState } from "react";
-import { data, isRouteErrorResponse, Link } from "react-router";
+import { data, isRouteErrorResponse, Link, useRevalidator } from "react-router";
 import { cloudflareContext } from "../cloudflare-context";
+import { readArchivedRecord } from "../../workers/game/archive";
 import { liveRoom, validGameId } from "../../workers/game/routes";
 import type { PublicGame } from "../../workers/game/engine";
+import type { GameRecord, TimelineItem } from "../../workers/game/record";
+import type { Snapshot } from "../../workers/game/runtime";
 import type { Route } from "./+types/games.$gameId";
 
-export function meta() { return [{ title: "Live game · Agent Werewolves" }]; }
+export function meta({ loaderData }: Route.MetaArgs) {
+  return [{ title: `${loaderData?.kind === "record" ? "Game record" : "Live game"} · Agent Werewolves` }];
+}
 export function headers() { return { "Cache-Control": "no-store" }; }
 
+type PageData = { kind: "live"; snapshot: Snapshot } | { kind: "record"; record: GameRecord; archived: boolean };
+
+/**
+ * A running game is the live viewer. A terminal game is its record, read from
+ * the D1 archive, or from the room (marked "archiving") until the archive lands.
+ */
 export async function loader({ params, context }: Route.LoaderArgs) {
   if (!validGameId(params.gameId)) throw new Response("Game not found", { status: 404 });
-  const snapshot = await liveRoom(context.get(cloudflareContext).env, params.gameId).getLiveSnapshot();
+  const { env } = context.get(cloudflareContext);
+  const id = params.gameId.toLowerCase();
+  const init = { headers: { "Cache-Control": "no-store" } };
+  try {
+    const record = await readArchivedRecord(env.ARCHIVE, id);
+    if (record) return data<PageData>({ kind: "record", record, archived: true }, init);
+  } catch (error) {
+    // The room still holds the game; fall through to it.
+    console.log(JSON.stringify({ evt: "archive_read_failed", gameId: id, error: String(error) }));
+  }
+  const room = liveRoom(env, id);
+  const snapshot = await room.getLiveSnapshot();
   if (!snapshot) throw new Response("Game not found", { status: 404 });
-  return data(snapshot, { headers: { "Cache-Control": "no-store" } });
+  if (snapshot.game.status === "running") return data<PageData>({ kind: "live", snapshot }, init);
+  const fromRoom = await room.getRecord();
+  if (!fromRoom) throw new Response("Game not found", { status: 404 });
+  return data<PageData>({ kind: "record", ...fromRoom }, init);
+}
+
+export default function GamePage({ loaderData }: Route.ComponentProps) {
+  return loaderData.kind === "live" ? <LiveGame snapshot={loaderData.snapshot} /> : <GameRecordView record={loaderData.record} archived={loaderData.archived} />;
 }
 
 type Connection = "connecting" | "live" | "reconnecting" | "closed" | "sign-in";
 
-export default function LiveGame({ loaderData }: Route.ComponentProps) {
+function LiveGame({ snapshot: loaderData }: { snapshot: Snapshot }) {
+  const revalidator = useRevalidator();
   const [game, setGame] = useState(loaderData.game);
   const [connection, setConnection] = useState<Connection>(loaderData.game.status === "running" ? "connecting" : "closed");
 
@@ -62,6 +92,8 @@ export default function LiveGame({ loaderData }: Route.ComponentProps) {
             ended = true;
             setConnection("closed");
             ws.close();
+            // The loader now returns the record: the page turns into it in place.
+            revalidator.revalidate();
           }
         } catch { ws.close(); }
       };
@@ -118,6 +150,103 @@ export default function LiveGame({ loaderData }: Route.ComponentProps) {
       {game.status !== "running" && <Link to="/" className="self-start rounded-lg bg-gray-900 px-5 py-3 font-semibold text-white dark:bg-gray-100 dark:text-gray-900">Start another game</Link>}
     </main>
   );
+}
+
+/** Re-reads the loader with bounded backoff until the archive lands, then stops. */
+function useArchiveRefresh(archived: boolean) {
+  const { revalidate } = useRevalidator();
+  useEffect(() => {
+    if (archived) return;
+    const stopAt = Date.now() + 5 * 60_000;
+    let delay = 2_000;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = () => {
+      timer = setTimeout(() => {
+        revalidate();
+        delay = Math.min(delay * 2, 30_000);
+        if (Date.now() < stopAt) poll();
+      }, delay);
+    };
+    poll();
+    return () => clearTimeout(timer);
+  }, [archived, revalidate]);
+}
+
+function GameRecordView({ record, archived }: { record: GameRecord; archived: boolean }) {
+  useArchiveRefresh(archived);
+  const name = (seat: string) => record.players.find(p => p.seat === seat)?.name ?? seat;
+  const role = (seat: string) => record.players.find(p => p.seat === seat)?.role;
+  return (
+    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-6 py-10">
+      <header className="flex items-center justify-between gap-4">
+        <Link to="/" className="text-sm underline">Agent Werewolves</Link>
+        <span role="status" className={`text-sm ${archived ? "text-gray-600 dark:text-gray-400" : "text-amber-700 dark:text-amber-400"}`}>{archived ? "Archived" : "Archiving…"}</span>
+      </header>
+      <div>
+        <p className="text-sm text-gray-600 dark:text-gray-400">Game record · {record.model}</p>
+        <h1 className="mt-2 text-3xl font-bold">{record.status === "finished" ? `${record.winner} win` : "Game stopped"}</h1>
+        <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+          Ended {formatTime(record.endedAt)} · {formatDuration(record.endedAt - record.createdAt)} · {record.days} {record.days === 1 ? "day" : "days"} · {record.turns} moves · {formatCost(record)}
+        </p>
+      </div>
+      {record.status === "aborted" && <p role="alert" className="rounded-lg border border-amber-400 p-4">{abortMessage(record.abortReason)} No winner was declared.</p>}
+      <ul className="grid grid-cols-5 gap-2" aria-label="Players">
+        {record.players.map(player => <li key={player.seat} className={`rounded-lg border border-gray-300 p-3 text-center dark:border-gray-700 ${!player.survived ? "opacity-60" : ""}`}>
+          <p className="font-semibold">{player.name}</p><p className="text-xs">{player.seat} · {player.survived ? "Survived" : "Dead"}</p>
+          <p className="mt-2 text-sm">{player.role}</p>
+        </li>)}
+      </ul>
+      <section aria-label="Game record">
+        <h2 className="mb-1 text-lg font-semibold">Village chronicle</h2>
+        <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">Each move shows the agent's private rationale beside it. Night actions were never public.</p>
+        <ol className="flex flex-col gap-3">
+          {record.timeline.map((item, i) => <TimelineEntry key={i} item={item} name={name} role={role} />)}
+        </ol>
+      </section>
+      <Link to="/" className="self-start rounded-lg bg-gray-900 px-5 py-3 font-semibold text-white dark:bg-gray-100 dark:text-gray-900">Start another game</Link>
+    </main>
+  );
+}
+
+function TimelineEntry({ item, name, role }: { item: TimelineItem; name: (seat: string) => string; role: (seat: string) => string | undefined }) {
+  if (!("actor" in item)) {
+    return <li className="rounded-lg bg-gray-100 p-4 text-sm dark:bg-gray-900"><p className="whitespace-pre-wrap break-words">{item.text}</p></li>;
+  }
+  const who = `${name(item.actor)} (${role(item.actor)})`;
+  if (item.kind === "speech") {
+    return <li className="rounded-lg border border-gray-300 p-4 dark:border-gray-700">
+      <p className="mb-1 text-sm font-semibold">{who} · Day {item.day}</p>
+      <p className="whitespace-pre-wrap break-words">{item.text}</p>
+      <Rationale text={item.rationale} />
+    </li>;
+  }
+  if (item.kind === "vote") {
+    return <li className="ml-6 rounded-lg border border-gray-300 px-4 py-2 text-sm dark:border-gray-700">
+      <p><span className="font-semibold">{who}</span> voted for {name(item.target)}</p>
+      <Rationale text={item.rationale} />
+    </li>;
+  }
+  return <li className="rounded-lg border border-dashed border-gray-400 px-4 py-2 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-300">
+    <p><span className="mr-2 rounded bg-gray-200 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide dark:bg-gray-800">Private</span>
+      <span className="font-semibold">{who}</span> {item.action === "investigate" ? `checked ${name(item.target)} → ${item.resultRole}` : `chose to kill ${name(item.target)}`}</p>
+    <Rationale text={item.rationale} />
+  </li>;
+}
+
+function Rationale({ text }: { text: string }) {
+  return <p className="mt-2 border-l-2 border-amber-500 pl-3 text-sm italic text-gray-700 dark:text-gray-300"><span className="sr-only">Private rationale: </span>{text}</p>;
+}
+
+/** UTC, so server and browser render the same text. */
+function formatTime(ms: number) { return `${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC`; }
+function formatDuration(ms: number) {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min ${seconds % 60} s`;
+}
+function formatCost(record: GameRecord) {
+  if (record.totalCostUsd === null) return "cost unknown";
+  const cost = `$${record.totalCostUsd.toFixed(4)}`;
+  return record.unknownCostTurns ? `${cost} (${record.unknownCostTurns} moves cost unknown)` : cost;
 }
 
 function abortMessage(reason: string | null) {

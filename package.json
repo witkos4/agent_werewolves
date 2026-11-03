@@ -12,7 +12,8 @@
     "dev": "react-router dev",
     "preview": "react-router build && vite preview",
     "typecheck": "npm run cf-typegen && tsc",
-    "test": "vitest run"
+    "test": "vitest run",
+    "db:migrate:local": "wrangler d1 migrations apply ARCHIVE --local"
   },
   "dependencies": {
     "isbot": "^5.1.36",
