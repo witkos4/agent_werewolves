@@ -153,3 +153,7 @@ curl -H "Authorization: Bearer $ACCESS_KEY" "$URL/api/spike/<gameId>/turns"
 | `CLOUDFLARE_API_TOKEN` | secret |
 | `CLOUDFLARE_ACCOUNT_ID` | secret |
 | `PROD_URL` | variable |
+
+`CLOUDFLARE_API_TOKEN` is an **Account API token** (Manage account → Account API tokens → Create Token): the *Edit Cloudflare Workers* template with account-wide Workers permissions, plus **Account · D1 · Edit**. The per-Worker "API token for external CI/CD" button on the Worker's settings page is not enough: it can't reach D1 (the migration step fails with `code: 7403`). To check a token before storing it, `curl -H "Authorization: Bearer $TOKEN" https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database` must return `"success": true`.
+
+**Don't edit the Worker in the dashboard.** Changing a secret or setting there marks the Worker as last deployed from the dashboard. Every later `wrangler deploy` then first downloads the dashboard config, and the CI token can't read its routes and custom domains (this account has no zones). The deploy fails with "Unable to fetch bindings, routes, or services metadata from the dashboard". Use `npx wrangler secret put` instead. If it happens, run one `npm run deploy` from a laptop logged in with `npx wrangler login`, then re-run the failed workflow.
