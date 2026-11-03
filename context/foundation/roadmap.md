@@ -3,7 +3,7 @@ project: Agent Werewolves
 version: 1
 status: draft
 created: 2026-10-18
-updated: 2026-11-02
+updated: 2026-11-03
 prd_version: 1
 main_goal: learn
 top_blocker: time
@@ -43,7 +43,7 @@ The operator wants hands-on learning of agentic workflows across the whole build
 | F-02 | game-room-turn-loop-spike | (foundation) a dummy multi-turn game room is proven to survive eviction and redeploy, broadcast live, and never re-bill a retried turn | F-01 | NFR: Games finish in bounded time; NFR: Spend never overshoots; NFR: Live feels live | done |
 | S-01 | access-key-gate | operator reaches the app only with the access key and can rotate it | F-01 | FR-001 | done |
 | S-02 | first-live-ai-game | operator starts a fixed-setup all-AI game and watches it live until one side wins, with roles revealed at the end | F-02, S-01 | US-01, FR-005, FR-006, FR-007 | done |
-| S-03 | game-record-with-reasoning | operator reopens a finished game and reads the public transcript with each agent's private rationale beside it | S-02 | US-01, FR-009 | in-progress |
+| S-03 | game-record-with-reasoning | operator reopens a finished game and reads the public transcript with each agent's private rationale beside it | S-02 | US-01, FR-009 | done |
 | S-04 | spectator-role-visibility | spectator toggles between hidden and shown roles while watching | S-02 | US-01, FR-008 | proposed |
 | S-05 | custom-table-composition | operator sets 5–9 seats and the role mix (by hand or randomized within the balance rule), with Witch, Hunter and Guard playable | S-02 | US-01, FR-002, FR-005 | proposed |
 | S-06 | mixed-model-seats-and-personas | operator seats different models and personalities at one table, by hand or drawn from a pool | S-02 | US-01, FR-003, FR-004 | proposed |
@@ -143,7 +143,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Unknowns:**
   - ~~Whether the hosted Postgres free tier pauses inactive projects.~~ Resolved 2026-11-02: the archive is Cloudflare D1 (operator decision), so no pause risk.
 - **Risk:** The first slice that persists games outside the game room, so the archive's durability assumptions are tested here. Rationale differs per model, so this slice must settle on one shared format.
-- **Status:** in-progress
+- **Status:** done
 
 ### S-04: Spectator role visibility toggle
 
@@ -254,15 +254,15 @@ Foundations below assume these are present and do NOT re-scaffold them.
 | F-02 | game-room-turn-loop-spike | Spike: retry-safe, deploy-surviving game-room turn loop | no | Needs F-01 |
 | S-01 | access-key-gate | Gate the app behind a rotatable access key | no | Needs F-01 |
 | S-02 | first-live-ai-game | Watch a fixed-setup all-AI game live to the end | no | Done; archived in `context/archive/2026-10-29-first-live-ai-game/` |
-| S-03 | game-record-with-reasoning | Game record: transcript with per-agent private rationale | yes | Archive store decision first (see S-03 unknowns) |
+| S-03 | game-record-with-reasoning | Game record: transcript with per-agent private rationale | no | Done; archived in `context/archive/2026-11-02-game-record-with-reasoning/` |
 | S-04 | spectator-role-visibility | Spectator toggle for hidden/shown roles | yes | Unblocked by S-02 |
 | S-05 | custom-table-composition | Configurable seats and roles incl. Witch, Hunter, Guard | yes | Unblocked by S-02 |
 | S-06 | mixed-model-seats-and-personas | Per-seat models and personalities (manual or pooled) | yes | Unblocked by S-02 |
-| S-07 | spend-limit-and-estimate | Pre-game cost estimate, spend limit, budget abort | no | Needs S-03 |
+| S-07 | spend-limit-and-estimate | Pre-game cost estimate, spend limit, budget abort | yes | Unblocked by S-03; retry-cache proof still blocks "spend never overshoots" |
 | S-08 | game-metrics | Per-model/role metrics with sample sizes | no | Needs S-03, S-06 |
 | S-09 | headless-batch-runs | Spend-capped headless batches with model rotation | no | Needs S-07, S-08 |
 | S-10 | archive-browse-and-filter | Browse and filter the game archive | no | Needs S-03, S-06 |
-| S-11 | verifiable-archive | Integrity-verifiable archive incl. crashed games | no | Needs S-03 |
+| S-11 | verifiable-archive | Integrity-verifiable archive incl. crashed games | yes | Unblocked by S-03 |
 
 ## Open Roadmap Questions
 
@@ -289,3 +289,4 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **F-02: (foundation) a throwaway three-turn game room proves turns chain across evictions and redeploys, broadcast live, and are billed once.** — Archived 2026-10-22 → `context/archive/2026-10-19-game-room-turn-loop-spike/`. Lesson: deploys let an in-flight DO alarm finish on old code, so a redeploy cannot force a retry; the no-re-bill proof moved to S-07.
 - **S-01: user can reach the app only after entering the access key, and the operator can rotate the key so the old one stops working immediately.** — Archived 2026-10-29 → `context/archive/2026-10-22-access-key-gate/`. Lesson: hibernated WebSockets outlive a key rotation (a running room can stay on the old version), so long-lived sockets need their own key fingerprint and age cap.
 - **S-02: user can start a fixed-setup all-AI game (Werewolves, Villagers and a Seer) and watch the night and day phases live until one side wins. Roles are revealed at the end.** — Archived 2026-10-29 → `context/archive/2026-10-29-first-live-ai-game/`. Lesson: a busy room keeps its version across redeploys, so production never exercised a mid-game restart; and five seats with one wolf give the village a single vote before parity (wolves won 3/3), so games are too short to measure much until S-05/S-06.
+- **S-03: user can reopen a finished game and read the full public transcript, with each agent's private rationale beside its public statements, in the same form for every model.** — Archived 2026-11-03 → `context/archive/2026-11-02-game-record-with-reasoning/`. Lesson: the first D1 deploy failed on Cloudflare access, not code. The CI token lacked D1, and any dashboard edit (even a secret) flips the Worker to dashboard-deployed, which breaks `wrangler deploy` for a zone-less account. Set secrets with `wrangler secret put` and verify a token against every API it needs before relying on CI.
