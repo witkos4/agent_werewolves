@@ -2,7 +2,9 @@ import { data, Form, Link, redirect, useNavigation } from "react-router";
 import { cloudflareContext } from "../cloudflare-context";
 import { listRecentGames, type RecentGame } from "../../workers/game/archive";
 import { handleGameRequest } from "../../workers/game/routes";
-import { MODEL, SAFETY_USD } from "../../workers/game/engine";
+import { SAFETY_USD } from "../../workers/game/engine";
+import { modelLabel, MODELS, PERSONAS } from "../../workers/game/catalog";
+import { DEFAULT_SETUP, RANDOM, setupFromForm, type GameSetup } from "../../workers/game/setup";
 import type { Route } from "./+types/home";
 
 export function meta({}: Route.MetaArgs) {
@@ -23,7 +25,13 @@ export async function loader({ context }: Route.LoaderArgs) {
   } catch (error) {
     console.log(JSON.stringify({ evt: "archive_list_failed", error: String(error) }));
   }
-  return data({ requestId: crypto.randomUUID(), model: MODEL, safetyUsd: SAFETY_USD, recent }, { headers: { "Cache-Control": "no-store" } });
+  return data({
+    requestId: crypto.randomUUID(),
+    models: MODELS.map(m => ({ id: m.id, label: m.label })),
+    personas: PERSONAS.map(p => ({ id: p.id, name: p.name })),
+    safetyUsd: SAFETY_USD,
+    recent,
+  }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export function headers() { return { "Cache-Control": "no-store" }; }
@@ -31,36 +39,67 @@ export function headers() { return { "Cache-Control": "no-store" }; }
 export async function action({ request, context }: Route.ActionArgs) {
   const form = await request.formData();
   const requestId = String(form.get("requestId") ?? "");
+  const discussionPasses = Number(form.get("discussionPasses"));
+  const setup = setupFromForm(form);
   const headers = new Headers({ "Content-Type": "application/json" });
   if (request.headers.has("Origin")) headers.set("Origin", request.headers.get("Origin")!);
   const response = await handleGameRequest(new Request(new URL("/api/games/start", request.url), {
     method: "POST", headers,
-    body: JSON.stringify({ requestId, discussionPasses: Number(form.get("discussionPasses")) }),
+    body: JSON.stringify({ requestId, discussionPasses, setup }),
   }), context.get(cloudflareContext).env);
   if (!response) throw new Response("Not found", { status: 404 });
   if (!response.ok) {
     const error = response.headers.get("Content-Type")?.includes("application/json")
       ? (await response.json() as { error: string }).error : "Could not start the game.";
-    return data({ error, requestId }, { status: response.status });
+    // Echo the choices so the form keeps them.
+    return data({ error, requestId, setup, discussionPasses }, { status: response.status });
   }
   const { viewerUrl } = await response.json() as { viewerUrl: string };
   throw redirect(viewerUrl);
 }
 
+const select = "min-w-0 rounded border border-gray-400 bg-transparent p-2 dark:bg-gray-950";
+
 export default function Home({ loaderData, actionData }: Route.ComponentProps) {
   const pending = useNavigation().state !== "idle";
+  const setup: GameSetup = actionData?.setup ?? DEFAULT_SETUP;
+  // Remount the fields when the server echoes new choices, so defaults apply.
+  const formKey = actionData ? JSON.stringify(actionData.setup) : "default";
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center gap-6 p-6">
       <p className="text-sm font-semibold uppercase tracking-widest text-amber-700 dark:text-amber-400">A village. Five agents. One hidden wolf.</p>
       <h1 className="text-4xl font-bold tracking-tight">Agent Werewolves</h1>
       <p className="text-gray-600 dark:text-gray-400">
-        Watch AI agents investigate, bluff and vote. One Werewolf, one Seer and three Villagers play until a team wins. Roles are revealed at the end.
+        Watch AI agents investigate, bluff and vote. One Werewolf, one Seer and three Villagers play until a team wins. Seat different models and personalities at one table and compare how they play. Roles are revealed at the end.
       </p>
-      <Form method="post" className="flex flex-col gap-5 rounded-xl border border-gray-300 p-6 dark:border-gray-700">
+      <Form key={formKey} method="post" className="flex flex-col gap-5 rounded-xl border border-gray-300 p-6 dark:border-gray-700">
         <input type="hidden" name="requestId" value={actionData?.requestId || loaderData.requestId} />
-        <p className="text-sm text-gray-600 dark:text-gray-400">All seats use {loaderData.model}. Roles are shuffled for each game.</p>
+        <fieldset disabled={pending} className="flex flex-col gap-2">
+          <legend className="mb-2 font-semibold">Seats</legend>
+          <p className="mb-1 text-sm text-gray-600 dark:text-gray-400">Roles are shuffled after seating, so a seat's model never decides its role.</p>
+          {setup.seats.map((seat, i) => <div key={i} className="grid grid-cols-[4rem_1fr_1fr] items-center gap-2">
+            <span className="text-sm">Seat {i + 1}</span>
+            <select name="seatModel" aria-label={`Seat ${i + 1} model`} defaultValue={seat.model} className={select}>
+              <option value={RANDOM}>Random from pool</option>
+              {loaderData.models.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+            <select name="seatPersona" aria-label={`Seat ${i + 1} personality`} defaultValue={seat.persona} className={select}>
+              <option value={RANDOM}>Random personality</option>
+              {loaderData.personas.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>)}
+        </fieldset>
+        <fieldset disabled={pending} className="flex flex-col gap-2">
+          <legend className="mb-2 font-semibold">Model pool</legend>
+          <p className="text-sm text-gray-600 dark:text-gray-400">"Random from pool" seats draw from these. A model can be drawn more than once.</p>
+          <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+            {loaderData.models.map(m => <label key={m.id} className="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="pool" value={m.id} defaultChecked={setup.pool.includes(m.id)} />{m.label}
+            </label>)}
+          </div>
+        </fieldset>
         <label className="flex items-center justify-between gap-4">Discussion rounds per day
-          <select name="discussionPasses" defaultValue="1" disabled={pending} className="rounded border border-gray-400 bg-transparent p-2">
+          <select name="discussionPasses" defaultValue={String(actionData?.discussionPasses ?? 1)} disabled={pending} className={select}>
             <option value="1">1 round</option><option value="2">2 rounds</option>
           </select>
         </label>
@@ -78,7 +117,7 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
             {loaderData.recent.map(game => <li key={game.id}>
               <Link to={`/games/${game.id}`} className="flex items-center justify-between gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-900">
                 <span className="font-semibold">{game.status === "finished" ? `${game.winner} win` : "Stopped"}</span>
-                <span className="text-sm text-gray-600 dark:text-gray-400">{game.days} {game.days === 1 ? "day" : "days"} · {game.model} · {new Date(game.endedAt).toISOString().slice(0, 16).replace("T", " ")} UTC</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">{game.days} {game.days === 1 ? "day" : "days"} · {modelLabel(game.model)} · {new Date(game.endedAt).toISOString().slice(0, 16).replace("T", " ")} UTC</span>
               </Link>
             </li>)}
           </ol>}

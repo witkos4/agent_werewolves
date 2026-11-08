@@ -5,6 +5,7 @@ import { callLlm, type LlmResult } from "./llm/client";
 import { buildTurnRequest } from "./spike/story";
 import { LiveGame, type LiveStartResult, type Snapshot } from "./game/runtime";
 import type { GameRecord } from "./game/record";
+import { parseSetup, type GameSetup } from "./game/setup";
 
 /** Loop limits. Mutable only so tests can shrink the waits. */
 export const tuning = {
@@ -150,10 +151,13 @@ export class GameRoom extends DurableObject<Env> {
     };
   }
 
-  async startLive(gameId: string, discussionPasses: number): Promise<LiveStartResult> {
+  /** `setup` omitted means the default setup. */
+  async startLive(gameId: string, discussionPasses: number, setup?: GameSetup): Promise<LiveStartResult> {
     if (this.readGame()) return { ok: false, status: 409, error: "Room already used for a spike." };
     if (![1, 2].includes(discussionPasses)) return { ok: false, status: 400, error: "Choose one or two discussion passes." };
-    return this.liveGame.start(gameId, discussionPasses);
+    const parsed = setup === undefined ? undefined : parseSetup(setup);
+    if (parsed && "error" in parsed) return { ok: false, status: 400, error: parsed.error };
+    return this.liveGame.start(gameId, discussionPasses, parsed);
   }
 
   async getLiveSnapshot(): Promise<Snapshot | null> {

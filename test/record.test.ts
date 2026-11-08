@@ -3,7 +3,7 @@ import { applyMove, createGame, type Game, type Move } from "../workers/game/eng
 import { buildRecord, type TimelineItem, type TurnData } from "../workers/game/record";
 
 // No swaps: p1 wolf, p2 Seer, p3–p5 villagers.
-const setup = (passes = 1) => createGame("record-game", passes, 100, length => length - 1);
+const setup = (passes = 1) => createGame("record-game", passes, 100, undefined, length => length - 1);
 const meta = { endedAt: 500, reservedUsd: 0.01 };
 const why = (game: Game) => `why-${game.turn}`;
 const target = (game: Game, id: string, pick = () => 0) => applyMove(game, { target: id, rationale: why(game) }, pick);
@@ -104,6 +104,21 @@ describe("game record projection", () => {
     const game = villageWin();
     const legacy = JSON.parse(JSON.stringify(game)) as Game;
     expect(buildRecord(legacy, [], meta)).toEqual(buildRecord(game, [], meta));
+  });
+
+  it("carries each seat's model and personality, and keeps version-1 seats on the game model", () => {
+    const game = villageWin();
+    const record = buildRecord(game, [], meta);
+    expect(record.setup).toEqual(game.setup);
+    expect(record.players.map(p => [p.model, p.persona])).toEqual(game.players.map(p => [p.model, p.persona]));
+    const legacy = JSON.parse(JSON.stringify(game)) as Game;
+    legacy.version = 1;
+    legacy.model = "google/gemini-3.1-flash-lite";
+    delete legacy.setup;
+    for (const p of legacy.players) { delete p.model; delete p.persona; }
+    const old = buildRecord(legacy, [], meta);
+    expect(old).toMatchObject({ setup: null, engineVersion: 1, model: "google/gemini-3.1-flash-lite" });
+    expect(old.players.every(p => p.model === "google/gemini-3.1-flash-lite" && p.persona === null)).toBe(true);
   });
 
   it("refuses a move whose public entry is missing", () => {

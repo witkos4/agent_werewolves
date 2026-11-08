@@ -4,6 +4,7 @@ import { cloudflareContext } from "../cloudflare-context";
 import { readArchivedRecord } from "../../workers/game/archive";
 import { liveRoom, validGameId } from "../../workers/game/routes";
 import type { PublicGame } from "../../workers/game/engine";
+import { modelLabel, personaById } from "../../workers/game/catalog";
 import type { GameRecord, TimelineItem } from "../../workers/game/record";
 import type { Snapshot } from "../../workers/game/runtime";
 import type { Route } from "./+types/games.$gameId";
@@ -126,7 +127,7 @@ function LiveGame({ snapshot: loaderData }: { snapshot: Snapshot }) {
         <span role="status" className={`text-sm ${connection === "live" ? "text-green-700 dark:text-green-400" : "text-gray-600 dark:text-gray-400"}`}>{connection === "sign-in" ? "Sign-in required" : connection}</span>
       </header>
       <div>
-        <p className="text-sm text-gray-600 dark:text-gray-400">{game.model}</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400">{modelLabel(game.model)}</p>
         <h1 className="mt-2 text-3xl font-bold">{game.status === "finished" ? `${game.winner} win` : game.status === "aborted" ? "Game stopped" : `${night ? "Night" : "Day"} ${game.day}`}</h1>
         {game.status === "running" && <p className="mt-2 text-gray-600 dark:text-gray-400">{night ? "The village sleeps. Night actions are private." : game.phase === "vote" ? "The village is voting. Results appear together." : "The village is discussing its suspicions."}</p>}
       </div>
@@ -135,6 +136,7 @@ function LiveGame({ snapshot: loaderData }: { snapshot: Snapshot }) {
       <ul className="grid grid-cols-5 gap-2" aria-label="Players">
         {game.players.map(player => <li key={player.id} className={`rounded-lg border border-gray-300 p-3 text-center dark:border-gray-700 ${!player.alive ? "opacity-60" : ""}`}>
           <p className="font-semibold">{player.name}</p><p className="text-xs">{player.id} · {player.alive ? "Alive" : "Dead"}</p>
+          <SeatLabel model={player.model} persona={player.persona} />
           <p className="mt-2 text-sm">{player.role || "Role hidden"}</p>
         </li>)}
       </ul>
@@ -175,7 +177,11 @@ function useArchiveRefresh(archived: boolean) {
 function GameRecordView({ record, archived }: { record: GameRecord; archived: boolean }) {
   useArchiveRefresh(archived);
   const name = (seat: string) => record.players.find(p => p.seat === seat)?.name ?? seat;
-  const role = (seat: string) => record.players.find(p => p.seat === seat)?.role;
+  // Timeline labels carry the model, so readers can see who reasoned how.
+  const role = (seat: string) => {
+    const player = record.players.find(p => p.seat === seat);
+    return player && `${player.role} · ${modelLabel(player.model)}`;
+  };
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-6 py-10">
       <header className="flex items-center justify-between gap-4">
@@ -183,7 +189,7 @@ function GameRecordView({ record, archived }: { record: GameRecord; archived: bo
         <span role="status" className={`text-sm ${archived ? "text-gray-600 dark:text-gray-400" : "text-amber-700 dark:text-amber-400"}`}>{archived ? "Archived" : "Archiving…"}</span>
       </header>
       <div>
-        <p className="text-sm text-gray-600 dark:text-gray-400">Game record · {record.model}</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400">Game record · {modelLabel(record.model)}</p>
         <h1 className="mt-2 text-3xl font-bold">{record.status === "finished" ? `${record.winner} win` : "Game stopped"}</h1>
         <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
           Ended {formatTime(record.endedAt)} · {formatDuration(record.endedAt - record.createdAt)} · {record.days} {record.days === 1 ? "day" : "days"} · {record.turns} moves · {formatCost(record)}
@@ -193,6 +199,7 @@ function GameRecordView({ record, archived }: { record: GameRecord; archived: bo
       <ul className="grid grid-cols-5 gap-2" aria-label="Players">
         {record.players.map(player => <li key={player.seat} className={`rounded-lg border border-gray-300 p-3 text-center dark:border-gray-700 ${!player.survived ? "opacity-60" : ""}`}>
           <p className="font-semibold">{player.name}</p><p className="text-xs">{player.seat} · {player.survived ? "Survived" : "Dead"}</p>
+          <SeatLabel model={player.model} persona={player.persona === null ? null : personaById(player.persona)?.name ?? player.persona} />
           <p className="mt-2 text-sm">{player.role}</p>
         </li>)}
       </ul>
@@ -231,6 +238,14 @@ function TimelineEntry({ item, name, role }: { item: TimelineItem; name: (seat: 
       <span className="font-semibold">{who}</span> {item.action === "investigate" ? `checked ${name(item.target)} → ${item.resultRole}` : `chose to kill ${name(item.target)}`}</p>
     <Rationale text={item.rationale} />
   </li>;
+}
+
+/** A seat's model and personality; neither reveals a role. */
+function SeatLabel({ model, persona }: { model: string; persona: string | null }) {
+  return <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+    <span className="block truncate" title={model}>{modelLabel(model)}</span>
+    {persona && <span className="block truncate" title={persona}>{persona}</span>}
+  </p>;
 }
 
 function Rationale({ text }: { text: string }) {

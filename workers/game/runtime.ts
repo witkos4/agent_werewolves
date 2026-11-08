@@ -1,7 +1,8 @@
 import { callLlm, type LlmResult } from "../llm/client";
 import { writeArchive } from "./archive";
-import { applyMove, buildRequest, createGame, INPUT_RATE_CEILING, MAX_OUTPUT_TOKENS, MODEL, OUTPUT_RATE_CEILING, publicGame, SAFETY_USD, validateMove, type Game, type PublicGame } from "./engine";
+import { applyMove, buildRequest, createGame, INPUT_RATE_CEILING, MAX_OUTPUT_TOKENS, OUTPUT_RATE_CEILING, publicGame, SAFETY_USD, validateMove, type Game, type PublicGame } from "./engine";
 import { buildRecord, type GameRecord } from "./record";
+import { canonicalSetup, DEFAULT_SETUP, type GameSetup } from "./setup";
 
 export const liveTuning = { firstDelayMs: 0, nextDelayMs: 250, timeoutMs: 30_000, quietMs: 45_000, maxAttempts: 3 };
 /**
@@ -14,23 +15,30 @@ type ArchiveRow = { status: "pending" | "archived"; attempts: number };
 export type Snapshot = { seq: number; game: PublicGame };
 export type LiveStartResult = { ok: true } | { ok: false; status: number; error: string };
 
-/** Public catalog check. No credential is sent to this endpoint. */
-async function pricingAvailable(): Promise<boolean> {
+/**
+ * Public catalog check for every model a game seats. Returns null when all
+ * pass, the first failing model, or "" when the catalog itself is unavailable.
+ * No credential is sent to this endpoint.
+ */
+async function unsafePricing(models: string[]): Promise<string | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10_000);
   try {
     const response = await fetch("https://openrouter.ai/api/v1/models", { signal: controller.signal });
-    if (!response.ok) return false;
+    if (!response.ok) return "";
     const result = await response.json() as { data?: { id: string; pricing?: Record<string, string> }[] };
-    const prices = result.data?.find(m => m.id === MODEL)?.pricing;
-    if (!prices) return false;
-    const input = Number(prices.prompt), output = Number(prices.completion);
-    return Number.isFinite(input) && input > 0 && input <= INPUT_RATE_CEILING &&
-      Number.isFinite(output) && output > 0 && output <= OUTPUT_RATE_CEILING &&
-      (!prices.internal_reasoning || Number(prices.internal_reasoning) <= OUTPUT_RATE_CEILING) &&
-      (!prices.request || Number(prices.request) === 0);
-  } catch { return false; }
+    return models.find(model => !safePrices(result.data?.find(m => m.id === model)?.pricing)) ?? null;
+  } catch { return ""; }
   finally { clearTimeout(timer); }
+}
+
+function safePrices(prices: Record<string, string> | undefined): boolean {
+  if (!prices) return false;
+  const input = Number(prices.prompt), output = Number(prices.completion);
+  return Number.isFinite(input) && input > 0 && input <= INPUT_RATE_CEILING &&
+    Number.isFinite(output) && output > 0 && output <= OUTPUT_RATE_CEILING &&
+    (!prices.internal_reasoning || Number(prices.internal_reasoning) <= OUTPUT_RATE_CEILING) &&
+    (!prices.request || Number(prices.request) === 0);
 }
 
 /** Real-game state is separate from legacy spike tables. All public output is projected. */
@@ -71,14 +79,20 @@ export class LiveGame {
     return { seq, game: publicGame(game) };
   }
 
-  async start(id: string, discussionPasses: number): Promise<LiveStartResult> {
+  /** `setup` undefined means the default; a version-1 room matches only an omitted setup. */
+  async start(id: string, discussionPasses: number, setup?: GameSetup): Promise<LiveStartResult> {
     return this.ctx.blockConcurrencyWhile(async () => {
       const existing = this.read();
-      if (existing) return existing.id === id && existing.discussionPasses === discussionPasses
-        ? { ok: true } : { ok: false, status: 409, error: "This start request was already used with different settings." };
+      if (existing) {
+        const sameSetup = existing.setup ? canonicalSetup(existing.setup) === canonicalSetup(setup ?? DEFAULT_SETUP) : setup === undefined;
+        return existing.id === id && existing.discussionPasses === discussionPasses && sameSetup
+          ? { ok: true } : { ok: false, status: 409, error: "This start request was already used with different settings." };
+      }
       if (!this.env.OPENROUTER_API_KEY?.trim()) return { ok: false, status: 503, error: "The game provider is not configured." };
-      if (!(await pricingAvailable())) return { ok: false, status: 503, error: "Cannot verify safe model pricing. Try again later." };
-      const game = createGame(id, discussionPasses, Date.now());
+      // Seats are drawn first so that only models the game will call are checked.
+      const game = createGame(id, discussionPasses, Date.now(), setup ?? DEFAULT_SETUP);
+      const unsafe = await unsafePricing([...new Set(game.players.map(p => p.model!))]);
+      if (unsafe !== null) return { ok: false, status: 503, error: `Cannot verify safe ${unsafe ? `pricing for ${unsafe}` : "model pricing"}. Try again later.` };
       const notify = this.ctx.storage.transactionSync(() => {
         this.ctx.storage.sql.exec("INSERT INTO live_game(singleton, state) VALUES (1, ?)", JSON.stringify(game));
         return this.emit("started", publicGame(game));
@@ -236,7 +250,13 @@ export class LiveGame {
     }
     let next: Game;
     try { next = applyMove(game, validateMove(game, result.text)); }
-    catch { return this.abort(game, "invalid_model_response"); }
+    catch (error) {
+      // Keep the rejected reply for diagnosis; the turn stays pending and is never replayed.
+      sql.exec("UPDATE live_turns SET response_text = ? WHERE turn_no = ?", result.text.slice(0, 4000), game.turn);
+      console.log(JSON.stringify({ evt: "invalid_model_response", gameId: game.id, turn: game.turn,
+        model: JSON.parse(turn.body).model, error: String(error), text: result.text.slice(0, 300) }));
+      return this.abort(game, "invalid_model_response");
+    }
     const notify = this.ctx.storage.transactionSync(() => {
       sql.exec("UPDATE live_turns SET status = 'done', response_text = ?, cost = ?, generation_id = ?, latency_ms = ? WHERE turn_no = ?",
         result.text, result.cost, result.generationId, result.latencyMs, game.turn);

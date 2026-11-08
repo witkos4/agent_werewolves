@@ -13,7 +13,8 @@
     "preview": "react-router build && vite preview",
     "typecheck": "npm run cf-typegen && tsc",
     "test": "vitest run",
-    "db:migrate:local": "wrangler d1 migrations apply ARCHIVE --local"
+    "db:migrate:local": "wrangler d1 migrations apply ARCHIVE --local",
+    "smoke:models": "esbuild scripts/model-smoke.ts --bundle --platform=node --format=esm --log-level=warning --outfile=node_modules/.cache/model-smoke.mjs && node --env-file=.dev.vars node_modules/.cache/model-smoke.mjs"
   },
   "dependencies": {
     "isbot": "^5.1.36",

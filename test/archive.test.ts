@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GameRoom } from "../workers/game-room";
 import { listRecentGames, readArchivedRecord, writeArchive } from "../workers/game/archive";
 import type { Game } from "../workers/game/engine";
+import { MODELS } from "../workers/game/catalog";
+import { DEFAULT_SETUP } from "../workers/game/setup";
 import { archiveTuning, liveTuning } from "../workers/game/runtime";
 import { setLlmCall, type LlmCall } from "../workers/llm/client";
 import { catalog, ok, playToFinish as play, startLiveGame as start } from "./live-helpers";
@@ -161,6 +163,39 @@ describe("archive outbox", () => {
     expect(await room.getLiveSnapshot()).toMatchObject({ game: { id, status: "finished" } });
     expect(await room.getRecord()).toMatchObject({ archived: false, record: { status: "finished" } });
     expect((await state(room)).alarm).not.toBeNull();
+  });
+
+  it("archives each seat's model and personality, and a mixed or shared summary model", async () => {
+    const seatsOf = (id: string) => env.ARCHIVE.prepare("SELECT seat, model, persona FROM game_players WHERE game_id = ? ORDER BY seat").bind(id).all<{ seat: string; model: string; persona: string | null }>();
+    const mixed = { seats: MODELS.slice(0, 5).map((m, i) => ({ model: m.id, persona: ["analyst", "accuser", "observer", "diplomat", "contrarian"][i] })), pool: [] };
+    const { room, id } = await start(mixed);
+    await playToFinish(room);
+    await runDurableObjectAlarm(room);
+    expect((await seatsOf(id)).results).toEqual(mixed.seats.map((s, i) => ({ seat: `p${i + 1}`, model: s.model, persona: s.persona })));
+    expect(await env.ARCHIVE.prepare("SELECT model FROM games WHERE id = ?").bind(id).first("model")).toBe("mixed");
+    expect((await readArchivedRecord(env.ARCHIVE, id))?.setup).toEqual(mixed);
+
+    const shared = await start({ seats: DEFAULT_SETUP.seats.map(s => ({ ...s, model: MODELS[3].id })), pool: [] });
+    await playToFinish(shared.room);
+    await runDurableObjectAlarm(shared.room);
+    expect(await env.ARCHIVE.prepare("SELECT model FROM games WHERE id = ?").bind(shared.id).first("model")).toBe(MODELS[3].id);
+    expect((await seatsOf(shared.id)).results.every(r => r.persona !== null)).toBe(true);
+  });
+
+  it("archives a version-1 game with the game model per seat and no personality", async () => {
+    const { room, id } = await start();
+    await runInDurableObject(room, (_i, s) => {
+      const game = JSON.parse(s.storage.sql.exec<{ state: string }>("SELECT state FROM live_game").one().state) as Game;
+      game.version = 1;
+      game.model = "google/gemini-3.1-flash-lite";
+      delete game.setup;
+      for (const p of game.players) { delete p.model; delete p.persona; }
+      s.storage.sql.exec("UPDATE live_game SET state = ?", JSON.stringify(game));
+    });
+    await playToFinish(room);
+    await runDurableObjectAlarm(room);
+    const rows = await env.ARCHIVE.prepare("SELECT model, persona FROM game_players WHERE game_id = ?").bind(id).all();
+    expect(rows.results).toEqual(Array.from({ length: 5 }, () => ({ model: "google/gemini-3.1-flash-lite", persona: null })));
   });
 
   it("queues a legacy terminal room that predates archiving when it is next opened", async () => {

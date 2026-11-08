@@ -2,18 +2,22 @@ import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { expect } from "vitest";
 import type { GameRoom } from "../workers/game-room";
-import { MODEL, type Game } from "../workers/game/engine";
+import type { Game } from "../workers/game/engine";
+import { MODELS } from "../workers/game/catalog";
+import type { GameSetup } from "../workers/game/setup";
 import { liveRoom } from "../workers/game/routes";
 import { setLlmCall } from "../workers/llm/client";
 
-/** Public pricing catalog response the start check accepts. */
-export const catalog = () => Response.json({ data: [{ id: MODEL, pricing: { prompt: "0.00000025", completion: "0.0000015" } }] });
+/** Public pricing catalog response the start check accepts; `overpriced` breaks one model's ceiling. */
+export const catalog = ({ overpriced }: { overpriced?: string } = {}) => Response.json({
+  data: MODELS.map(m => ({ id: m.id, pricing: m.id === overpriced ? { prompt: "1", completion: "1" } : { prompt: "0.00000025", completion: "0.0000015", internal_reasoning: "0.0000015" } })),
+});
 export const ok = (text: string) => ({ ok: true as const, text, cost: 0.0001, cacheHit: false, generationId: "gen", latencyMs: 5 });
 
-export async function startLiveGame() {
+export async function startLiveGame(setup?: GameSetup) {
   const id = crypto.randomUUID();
   const room = liveRoom(env, id);
-  expect(await room.startLive(id, 1)).toEqual({ ok: true });
+  expect(await room.startLive(id, 1, setup)).toEqual({ ok: true });
   return { room, id };
 }
 
