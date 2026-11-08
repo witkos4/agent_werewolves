@@ -343,12 +343,12 @@ Request bodies grow by one persona sentence (about 200 bytes), well inside `MAX_
 
 #### Automated
 
-- [ ] 2.1 Start API tests pass
-- [ ] 2.2 Runtime tests pass
-- [ ] 2.3 Archive tests pass
-- [ ] 2.4 Record tests pass
-- [ ] 2.5 Local migration applies
-- [ ] 2.6 Typecheck passes
+- [x] 2.1 Start API tests pass — f0bf034
+- [x] 2.2 Runtime tests pass — f0bf034
+- [x] 2.3 Archive tests pass — f0bf034
+- [x] 2.4 Record tests pass — f0bf034
+- [x] 2.5 Local migration applies — f0bf034
+- [x] 2.6 Typecheck passes — f0bf034
 
 ### Phase 3: Setup form and seat labels
 
