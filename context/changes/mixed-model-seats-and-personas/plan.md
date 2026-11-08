@@ -318,7 +318,7 @@ Request bodies grow by one persona sentence (about 200 bytes), well inside `MAX_
 
 - Roadmap: `context/foundation/roadmap.md` (S-06)
 - PRD: FR-003, FR-004, Reproducible setup (`context/foundation/prd.md`)
-- Prior slice: `context/changes/game-record-with-reasoning/` (archived by PR #19)
+- Prior slice: `context/archive/2026-11-02-game-record-with-reasoning/`
 - OpenRouter public model catalog, read 2026-11-08 (supported parameters and prices for the six catalog models)
 
 ## Progress

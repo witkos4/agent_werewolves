@@ -1,7 +1,7 @@
 ---
 change_id: mixed-model-seats-and-personas
 title: Seat different models and personalities at one table, by hand or drawn from a pool
-status: planned
+status: implementing
 created: 2026-11-08
 updated: 2026-11-08
 archived_at: null

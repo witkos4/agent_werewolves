@@ -46,7 +46,7 @@ The operator wants hands-on learning of agentic workflows across the whole build
 | S-03 | game-record-with-reasoning | operator reopens a finished game and reads the public transcript with each agent's private rationale beside it | S-02 | US-01, FR-009 | done |
 | S-04 | spectator-role-visibility | spectator toggles between hidden and shown roles while watching | S-02 | US-01, FR-008 | proposed |
 | S-05 | custom-table-composition | operator sets 5–9 seats and the role mix (by hand or randomized within the balance rule), with Witch, Hunter and Guard playable | S-02 | US-01, FR-002, FR-005 | proposed |
-| S-06 | mixed-model-seats-and-personas | operator seats different models and personalities at one table, by hand or drawn from a pool | S-02 | US-01, FR-003, FR-004 | proposed |
+| S-06 | mixed-model-seats-and-personas | operator seats different models and personalities at one table, by hand or drawn from a pool | S-02 | US-01, FR-003, FR-004 | in-progress |
 | S-07 | spend-limit-and-estimate | operator sees an estimated cost, sets a spend limit, and over-budget games end and are archived as aborted | S-03 | US-01, FR-014 | proposed |
 | S-08 | game-metrics | operator sees win rate, vote accuracy, deception success, cost and latency per model and role, each with its game count | S-03, S-06 | US-01, FR-011 | proposed |
 | S-09 | headless-batch-runs | operator runs a spend-capped batch of 10–20 headless games with model rotation and reviews aggregated results | S-07, S-08 | US-02, FR-016, FR-003, FR-014 | proposed |
@@ -178,9 +178,9 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Parallel with:** S-03, S-04, S-05
 - **Blockers:** —
 - **Unknowns:**
-  - Who writes the preset personality roster, and how many personalities v1 needs. Owner: user. Block: no.
+  - ~~Who writes the preset personality roster, and how many personalities v1 needs.~~ Resolved 2026-11-08: Claude drafted eight in `workers/game/catalog.ts`, for the operator to edit. The catalog is six models from six labs, all under the existing rate ceilings.
 - **Risk:** Under the `learn` goal this is the core comparison the product exists for. Provider-specific quirks (rate limits, how each model exposes reasoning) surface here, not earlier.
-- **Status:** proposed
+- **Status:** in-progress
 
 ### S-07: Spend limit and cost estimate
 
@@ -257,7 +257,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 | S-03 | game-record-with-reasoning | Game record: transcript with per-agent private rationale | no | Done; archived in `context/archive/2026-11-02-game-record-with-reasoning/` |
 | S-04 | spectator-role-visibility | Spectator toggle for hidden/shown roles | yes | Unblocked by S-02 |
 | S-05 | custom-table-composition | Configurable seats and roles incl. Witch, Hunter, Guard | yes | Unblocked by S-02 |
-| S-06 | mixed-model-seats-and-personas | Per-seat models and personalities (manual or pooled) | yes | Unblocked by S-02 |
+| S-06 | mixed-model-seats-and-personas | Per-seat models and personalities (manual or pooled) | yes | In progress: `context/changes/mixed-model-seats-and-personas/` |
 | S-07 | spend-limit-and-estimate | Pre-game cost estimate, spend limit, budget abort | yes | Unblocked by S-03; retry-cache proof still blocks "spend never overshoots" |
 | S-08 | game-metrics | Per-model/role metrics with sample sizes | no | Needs S-03, S-06 |
 | S-09 | headless-batch-runs | Spend-capped headless batches with model rotation | no | Needs S-07, S-08 |
