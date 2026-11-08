@@ -1,7 +1,8 @@
 /**
- * One real discuss call and one real vote call per catalog model, using the
- * engine's exact request shape. Proves each model accepts the parameters and
- * returns a valid move. Needs OPENROUTER_API_KEY; spends well under $0.01.
+ * Real calls for every phase (investigate, kill, discuss, vote), SAMPLES times
+ * each, per catalog model, using the engine's exact request shape. Proves each
+ * model accepts the parameters and keeps returning valid moves. Needs
+ * OPENROUTER_API_KEY; spends about $0.02 at SAMPLES = 3.
  * Run: npm run smoke:models
  */
 import { MODELS } from "../workers/game/catalog";
@@ -24,12 +25,14 @@ function advanceTo(game: Game, phase: Game["phase"]): Game {
   return game;
 }
 
+const SAMPLES = Number(process.env.SMOKE_SAMPLES ?? 3);
 let failures = 0;
 let total = 0;
 for (const model of MODELS) {
   const base = createGame(crypto.randomUUID(), 1, Date.now(), { seats: Array.from({ length: 5 }, () => ({ model: model.id, persona: "random" })), pool: [] });
-  for (const phase of ["discuss", "vote"] as const) {
-    const game = advanceTo(base, phase);
+  for (const phase of ["investigate", "kill", "discuss", "vote"] as const) for (let sample = 1; sample <= SAMPLES; sample++) {
+    // Each sample is a distinct turn id, so the response cache never answers it.
+    const game = { ...advanceTo(base, phase), id: crypto.randomUUID() };
     const result = await callOpenRouter({ apiKey, body: buildRequest(game), signal: AbortSignal.timeout(30_000) });
     let outcome: string;
     if (!result.ok) outcome = `FAIL ${result.reason}`;
@@ -39,7 +42,7 @@ for (const model of MODELS) {
     }
     if (outcome !== "ok") failures++;
     if (result.ok && result.cost) total += result.cost;
-    console.log([model.id, phase, outcome, result.ok ? `$${result.cost ?? "?"}` : "-", result.ok ? `${result.latencyMs}ms` : "-"].join("\t"));
+    console.log([model.id, `${phase}#${sample}`, outcome, result.ok ? `$${result.cost ?? "?"}` : "-", result.ok ? `${result.latencyMs}ms` : "-"].join("\t"));
   }
 }
 console.log(`total $${total.toFixed(5)}, ${failures} failed`);

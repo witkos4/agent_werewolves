@@ -250,7 +250,13 @@ export class LiveGame {
     }
     let next: Game;
     try { next = applyMove(game, validateMove(game, result.text)); }
-    catch { return this.abort(game, "invalid_model_response"); }
+    catch (error) {
+      // Keep the rejected reply for diagnosis; the turn stays pending and is never replayed.
+      sql.exec("UPDATE live_turns SET response_text = ? WHERE turn_no = ?", result.text.slice(0, 4000), game.turn);
+      console.log(JSON.stringify({ evt: "invalid_model_response", gameId: game.id, turn: game.turn,
+        model: JSON.parse(turn.body).model, error: String(error), text: result.text.slice(0, 300) }));
+      return this.abort(game, "invalid_model_response");
+    }
     const notify = this.ctx.storage.transactionSync(() => {
       sql.exec("UPDATE live_turns SET status = 'done', response_text = ?, cost = ?, generation_id = ?, latency_ms = ? WHERE turn_no = ?",
         result.text, result.cost, result.generationId, result.latencyMs, game.turn);

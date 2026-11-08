@@ -137,7 +137,9 @@ export function buildRequest(game: Game): string {
     ],
     max_tokens: MAX_OUTPUT_TOKENS,
     ...(temperature === null ? {} : { temperature }),
-    response_format: { type: "json_object" },
+    // A strict schema, not bare JSON mode: some models (seen with Claude Haiku 5.5)
+    // otherwise emit malformed JSON or extra keys. validateMove still enforces limits.
+    response_format: { type: "json_schema", json_schema: { name: "move", strict: true, schema: moveSchema(game.phase, view.allowedTargets) } },
     reasoning: { enabled: false },
     // OpenRouter prices are dollars per million tokens here.
     provider: { max_price: { prompt: INPUT_RATE_CEILING * 1_000_000, completion: OUTPUT_RATE_CEILING * 1_000_000 }, require_parameters: true },
@@ -145,6 +147,14 @@ export function buildRequest(game: Game): string {
   });
   if (new TextEncoder().encode(body).length > MAX_INPUT_BYTES) throw new Error("context_limit");
   return body;
+}
+
+function moveSchema(phase: Phase, allowedTargets: string[]) {
+  const rationale = { type: "string", description: "Private decision summary, at most 25 words." };
+  const properties = phase === "discuss"
+    ? { text: { type: "string", description: "One public statement, at most 60 words." }, rationale }
+    : { target: { type: "string", enum: allowedTargets }, rationale };
+  return { type: "object", properties, required: Object.keys(properties), additionalProperties: false };
 }
 
 export function validateMove(game: Game, text: string): Move {

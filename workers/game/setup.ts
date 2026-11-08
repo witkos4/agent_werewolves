@@ -60,3 +60,16 @@ export function resolveSeats(setup: GameSetup, pick: (length: number) => number)
     persona: seat.persona === RANDOM ? left.splice(pick(left.length), 1)[0] : seat.persona,
   }));
 }
+
+/**
+ * Reads the home form's repeated `seatModel`/`seatPersona` selects and `pool`
+ * checkboxes, in form order. Validation is left to `parseSetup`.
+ */
+export function setupFromForm(form: FormData): { seats: SeatChoice[]; pool: string[] } {
+  const models = form.getAll("seatModel").map(String);
+  const personas = form.getAll("seatPersona").map(String);
+  return {
+    seats: models.map((model, i) => ({ model, persona: personas[i] ?? RANDOM })),
+    pool: form.getAll("pool").map(String),
+  };
+}

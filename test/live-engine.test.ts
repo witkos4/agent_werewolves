@@ -116,6 +116,18 @@ describe("mixed-model seats and personalities", () => {
     expect(same.model).toBe(ids[4]);
   });
 
+  it("constrains every reply to a strict per-phase schema", () => {
+    let game = fixed();
+    expect(body(game).response_format).toEqual({ type: "json_schema", json_schema: { name: "move", strict: true, schema: {
+      type: "object", additionalProperties: false, required: ["target", "rationale"],
+      properties: { target: { type: "string", enum: ["p1", "p3", "p4", "p5"] }, rationale: expect.objectContaining({ type: "string" }) },
+    } } });
+    game = target(target(game, "p1"), "p5");
+    const schema = body(game).response_format.json_schema.schema;
+    expect(schema).toMatchObject({ required: ["text", "rationale"], additionalProperties: false });
+    expect(Object.keys(schema.properties)).toEqual(["text", "rationale"]);
+  });
+
   it("shuffles roles independently of the seats", () => {
     const counts = new Set<string>();
     for (let i = 0; i < 30; i++) counts.add(createGame("g", 1, 100, mixed).players.find(p => p.role === "Werewolf")!.model!);
@@ -139,7 +151,7 @@ describe("mixed-model seats and personalities", () => {
     expect(publicGame(game).players[0]).toMatchObject({ model: ids[1], persona: "The Analyst" });
   });
 
-  it("builds a version-1 request exactly as before", () => {
+  it("builds a version-1 request on the game model with no personality", () => {
     const legacy = setup();
     legacy.version = 1;
     delete legacy.setup;

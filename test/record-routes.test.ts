@@ -4,7 +4,11 @@ import { RouterContextProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cloudflareContext } from "../app/cloudflare-context";
 import { loader as gameLoader } from "../app/routes/games.$gameId";
-import { loader as homeLoader } from "../app/routes/home";
+import { action as homeAction, loader as homeLoader } from "../app/routes/home";
+import { MODELS, PERSONAS } from "../workers/game/catalog";
+import { liveRoom } from "../workers/game/routes";
+import type { Game } from "../workers/game/engine";
+import { runInDurableObject } from "cloudflare:test";
 import { archiveTuning, liveTuning } from "../workers/game/runtime";
 import { setLlmCall, type LlmCall } from "../workers/llm/client";
 import { catalog, ok, playToFinish, startLiveGame, stubVillageWin } from "./live-helpers";
@@ -92,6 +96,52 @@ describe("home recent games", () => {
     const { data } = await homeLoader(args("/")) as unknown as { data: { recent: { endedAt: number }[] } };
     expect(data.recent).toHaveLength(20);
     expect(data.recent.map(g => g.endedAt)).toEqual(Array.from({ length: 20 }, (_, i) => base + 21 - i));
+  });
+
+  it("offers the model catalog and personality roster on the start form", async () => {
+    const { data } = await homeLoader(args("/")) as unknown as { data: { models: { id: string }[]; personas: { id: string }[] } };
+    expect(data.models.map(m => m.id)).toEqual(MODELS.map(m => m.id));
+    expect(data.personas.map(p => p.id)).toEqual(PERSONAS.map(p => p.id));
+  });
+
+  it("starts a game with the form's seats and pool, and re-renders an invalid setup with its choices", async () => {
+    const post = (fields: [string, string][]) => {
+      const form = new FormData();
+      for (const [k, v] of fields) form.append(k, v);
+      const request = new Request("https://example.test/?index", { method: "POST", body: form });
+      const context = new RouterContextProvider();
+      context.set(cloudflareContext, { env, ctx: {} as ExecutionContext });
+      return homeAction({ request, context, params: {}, url: new URL(request.url), pattern: "/" } as never);
+    };
+    const id = crypto.randomUUID();
+    const seats: [string, string][] = MODELS.slice(0, 5).flatMap((m, i) => [["seatModel", i === 4 ? "random" : m.id], ["seatPersona", i === 0 ? "analyst" : "random"]] as [string, string][]);
+    const redirect = await post([["requestId", id], ["discussionPasses", "2"], ...seats, ["pool", MODELS[5].id]]).catch(r => r as Response);
+    expect((redirect as Response).headers.get("Location")).toBe(`/games/${id}`);
+    const game = await runInDurableObject(liveRoom(env, id), (_i, st) => JSON.parse(st.storage.sql.exec<{ state: string }>("SELECT state FROM live_game").one().state) as Game);
+    expect(game.discussionPasses).toBe(2);
+    expect(game.players.map(p => p.model)).toEqual([...MODELS.slice(0, 4).map(m => m.id), MODELS[5].id]);
+    expect(game.players[0].persona).toBe("analyst");
+
+    const bad = await post([["requestId", crypto.randomUUID()], ["discussionPasses", "1"], ...seats]) as unknown as { data: { error: string; setup: { pool: string[] } }; init: { status: number } };
+    expect(bad.init.status).toBe(400);
+    expect(bad.data.error).toBe("Pick at least one model for the pool.");
+    expect(bad.data.setup.pool).toEqual([]);
+  });
+
+  it("shows each seat's model and personality while live and in the record, without personality prompts", async () => {
+    const setup = { seats: MODELS.slice(0, 5).map((m, i) => ({ model: m.id, persona: PERSONAS[i].id })), pool: [] };
+    const { room, id } = await startLiveGame(setup);
+    const live = await gamePage(id);
+    expect(live.kind).toBe("live");
+    if (live.kind !== "live") return;
+    expect(live.snapshot.game.players.map(p => [p.model, p.persona])).toEqual(setup.seats.map((s, i) => [s.model, PERSONAS[i].name]));
+    expect(JSON.stringify(live)).not.toContain(PERSONAS[0].prompt);
+    await playToFinish(room, "seat-rationale");
+    await runDurableObjectAlarm(room);
+    const page = await gamePage(id);
+    expect(page).toMatchObject({ kind: "record", archived: true, record: { model: "mixed" } });
+    if (page.kind !== "record") return;
+    expect(page.record.players.map(p => [p.model, p.persona])).toEqual(setup.seats.map(s => [s.model, s.persona]));
   });
 
   it("still renders the start form when the archive is unavailable", async () => {

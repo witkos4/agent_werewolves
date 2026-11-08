@@ -114,7 +114,7 @@ Pure code only: the catalog, the roster, setup validation and resolution, the ve
 - `seatModel(game, player)` and `seatPersona(game, player)` are exported accessors with the version-1 fallback.
 - `PublicGame.players[]` gains `model: string` and `persona: string | null` (persona *name*, from the roster; `null` for v1, or for an id since removed from the roster).
 - The actor's persona goes only into the system prompt (below); `agentView` is unchanged and carries nothing about any seat's model or persona.
-- `buildRequest`: `model` = `seatModel(actor)`. `temperature` comes from the catalog entry and is omitted when `null` (an unknown model, such as a v1 game whose model was dropped from the catalog, keeps `0.7`). When the actor has a persona, the system prompt appends: "Your personality: {name}. {prompt} Let it shape how you speak and decide, but always play to win for your team." All other body fields are unchanged.
+- `buildRequest`: `model` = `seatModel(actor)`. `temperature` comes from the catalog entry and is omitted when `null` (an unknown model, such as a v1 game whose model was dropped from the catalog, keeps `0.7`). When the actor has a persona, the system prompt appends: "Your personality: {name}. {prompt} Let it shape how you speak and decide, but always play to win for your team." `response_format` becomes a strict per-phase JSON schema (`{text, rationale}` or `{target ∈ allowedTargets, rationale}`, no extra keys) instead of bare `json_object`. This was added during Phase 3: in dev, Claude Haiku 5.5 broke bare JSON mode on 2 of 3 first-night investigations. All six models list `structured_outputs`. `validateMove` still enforces the length limits. All other body fields are unchanged.
 
 #### 4. Model smoke script
 

@@ -106,7 +106,11 @@ describe("durable live games", () => {
     const { room } = await start();
     await alarmNow(room);
     expect((await room.getLiveSnapshot())!.game).toMatchObject({ status: "aborted", abortReason: "invalid_model_response", winner: null });
-    expect((await inspect(room)).game.turn).toBe(1);
+    const stored = await inspect(room);
+    expect(stored.game.turn).toBe(1);
+    // The rejected reply is kept for diagnosis but the turn is not completed.
+    expect(stored.turns[0]).toMatchObject({ status: "pending" });
+    expect(await runInDurableObject(room, (_i, s) => s.storage.sql.exec<{ response_text: string }>("SELECT response_text FROM live_turns").one().response_text)).toBe("invalid");
   });
 
   it("aborts at the deadline after eviction without another provider call", async () => {
