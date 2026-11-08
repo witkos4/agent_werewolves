@@ -354,14 +354,14 @@ Request bodies grow by one persona sentence (about 200 bytes), well inside `MAX_
 
 #### Automated
 
-- [ ] 3.1 Route tests pass
-- [ ] 3.2 Live privacy regression stays green
-- [ ] 3.3 Typecheck and build pass
+- [x] 3.1 Route tests pass — 2b217ce
+- [x] 3.2 Live privacy regression stays green — 2b217ce
+- [x] 3.3 Typecheck and build pass — 2b217ce
 
 #### Manual
 
-- [ ] 3.4 Default-form dev game seats mixed models
-- [ ] 3.5 Manual-setup dev game matches its record
+- [x] 3.4 Default-form dev game seats mixed models — 2b217ce
+- [x] 3.5 Manual-setup dev game matches its record — 2b217ce
 
 ### Phase 4: Production rollout and drill
 
