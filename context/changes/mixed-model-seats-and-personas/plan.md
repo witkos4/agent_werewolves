@@ -329,14 +329,14 @@ Request bodies grow by one persona sentence (about 200 bytes), well inside `MAX_
 
 #### Automated
 
-- [ ] 1.1 Setup tests pass
-- [ ] 1.2 Engine tests pass
-- [ ] 1.3 Existing suite stays green
-- [ ] 1.4 Typecheck passes
+- [x] 1.1 Setup tests pass — 3c99789
+- [x] 1.2 Engine tests pass — 3c99789
+- [x] 1.3 Existing suite stays green — 3c99789
+- [x] 1.4 Typecheck passes — 3c99789
 
 #### Manual
 
-- [ ] 1.5 Model smoke succeeds for every catalog model
+- [x] 1.5 Model smoke succeeds for every catalog model — 3c99789
 - [ ] 1.6 Operator reviewed the personality texts
 
 ### Phase 2: Start API, pricing and archive
