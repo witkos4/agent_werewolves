@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { agentView, applyMove, buildRequest, createGame, publicGame, validateMove, type Game } from "../workers/game/engine";
+import { agentView, applyMove, buildRequest, createGame, MODEL, publicGame, validateMove, type Game } from "../workers/game/engine";
+import { MODELS } from "../workers/game/catalog";
+import type { GameSetup } from "../workers/game/setup";
 
 // No swaps: p1 wolf, p2 Seer, p3–p5 villagers.
-const setup = (passes = 1) => createGame("test-game", passes, 100, length => length - 1);
+const setup = (passes = 1) => createGame("test-game", passes, 100, undefined, length => length - 1);
 const target = (game: Game, id: string) => applyMove(game, { target: id, rationale: "private-sentinel" }, () => 0);
 const speak = (game: Game) => applyMove(game, { text: "What did you notice?", rationale: "private-sentinel" });
 function discussion(game: Game) {
@@ -89,5 +91,64 @@ describe("Werewolf rules and information boundaries", () => {
     expect(JSON.parse(buildRequest(game))).toMatchObject({ max_tokens: 256, reasoning: { enabled: false } });
     game.transcript.push({ day: 1, kind: "speech", text: "x".repeat(50_000) });
     expect(() => buildRequest(game)).toThrow("context_limit");
+  });
+});
+
+describe("mixed-model seats and personalities", () => {
+  const ids = MODELS.map(m => m.id);
+  const mixed: GameSetup = {
+    seats: [
+      { model: ids[1], persona: "analyst" }, { model: ids[0], persona: "accuser" }, { model: ids[2], persona: "observer" },
+      { model: ids[3], persona: "diplomat" }, { model: ids[3], persona: "contrarian" },
+    ],
+    pool: [],
+  };
+  const fixed = () => createGame("mixed-game", 1, 100, mixed, length => length - 1);
+  const body = (game: Game) => JSON.parse(buildRequest(game));
+
+  it("stores resolved seats, the requested setup and a mixed summary model", () => {
+    const game = fixed();
+    expect(game.version).toBe(2);
+    expect(game.model).toBe("mixed");
+    expect(game.setup).toEqual(mixed);
+    expect(game.players.map(p => [p.model, p.persona])).toEqual(mixed.seats.map(s => [s.model, s.persona]));
+    const same = createGame("same", 1, 100, { seats: mixed.seats.map(s => ({ ...s, model: ids[4] })), pool: [] });
+    expect(same.model).toBe(ids[4]);
+  });
+
+  it("shuffles roles independently of the seats", () => {
+    const counts = new Set<string>();
+    for (let i = 0; i < 30; i++) counts.add(createGame("g", 1, 100, mixed).players.find(p => p.role === "Werewolf")!.model!);
+    expect(counts.size).toBeGreaterThan(1);
+  });
+
+  it("sends each turn with the actor's model, parameters and personality only", () => {
+    let game = fixed(); // p2 is the Seer and acts first.
+    let request = body(game);
+    expect(request.model).toBe(ids[0]);
+    expect(request.temperature).toBe(0.7);
+    expect(request.messages[0].content).toContain("Your personality: The Accuser.");
+    game = target(game, "p1");
+    game = target(game, "p5");
+    request = body(game); // p1 speaks first in the day.
+    expect(request.model).toBe(ids[1]);
+    expect(request).not.toHaveProperty("temperature");
+    const text = JSON.stringify(request);
+    expect(text).toContain("The Analyst");
+    for (const other of ["The Accuser", "The Quiet Observer", "The Diplomat", ids[0], ids[2], ids[3]]) expect(text).not.toContain(other);
+    expect(publicGame(game).players[0]).toMatchObject({ model: ids[1], persona: "The Analyst" });
+  });
+
+  it("builds a version-1 request exactly as before", () => {
+    const legacy = setup();
+    legacy.version = 1;
+    delete legacy.setup;
+    for (const p of legacy.players) { delete p.model; delete p.persona; }
+    legacy.model = MODEL;
+    const request = body(legacy);
+    expect(request).toMatchObject({ model: MODEL, temperature: 0.7 });
+    expect(request.messages[0].content).not.toContain("Your personality");
+    expect(Object.keys(request)).toEqual(["model", "messages", "max_tokens", "temperature", "response_format", "reasoning", "provider", "user"]);
+    expect(publicGame(legacy).players[0]).toMatchObject({ model: MODEL, persona: null });
   });
 });

@@ -3,7 +3,7 @@ import { applyMove, createGame, type Game, type Move } from "../workers/game/eng
 import { buildRecord, type TimelineItem, type TurnData } from "../workers/game/record";
 
 // No swaps: p1 wolf, p2 Seer, p3–p5 villagers.
-const setup = (passes = 1) => createGame("record-game", passes, 100, length => length - 1);
+const setup = (passes = 1) => createGame("record-game", passes, 100, undefined, length => length - 1);
 const meta = { endedAt: 500, reservedUsd: 0.01 };
 const why = (game: Game) => `why-${game.turn}`;
 const target = (game: Game, id: string, pick = () => 0) => applyMove(game, { target: id, rationale: why(game) }, pick);

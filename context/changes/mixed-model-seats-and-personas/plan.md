@@ -113,7 +113,7 @@ Pure code only: the catalog, the roster, setup validation and resolution, the ve
 - `createGame(id, discussionPasses, now, setup = DEFAULT_SETUP, pick = randomIndex)` writes `version: 2`. It resolves seats first, then shuffles roles with the same `pick`. It sets per-player `model` and `persona`, `setup`, and `model` = the shared model id if all seats match, otherwise `"mixed"`.
 - `seatModel(game, player)` and `seatPersona(game, player)` are exported accessors with the version-1 fallback.
 - `PublicGame.players[]` gains `model: string` and `persona: string | null` (persona *name*, from the roster; `null` for v1, or for an id since removed from the roster).
-- `agentView` gains `persona: { name, prompt } | null` for the actor only. Nothing about other seats' models or personas.
+- The actor's persona goes only into the system prompt (below); `agentView` is unchanged and carries nothing about any seat's model or persona.
 - `buildRequest`: `model` = `seatModel(actor)`. `temperature` comes from the catalog entry and is omitted when `null` (an unknown model, such as a v1 game whose model was dropped from the catalog, keeps `0.7`). When the actor has a persona, the system prompt appends: "Your personality: {name}. {prompt} Let it shape how you speak and decide, but always play to win for your team." All other body fields are unchanged.
 
 #### 4. Model smoke script
