@@ -4,16 +4,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GameRoom } from "../workers/game-room";
 import { SOCKET_EXPIRED_CLOSE_CODE, tuning } from "../workers/game-room";
 import type { Game } from "../workers/game/engine";
-import { MODEL } from "../workers/game/engine";
 import { liveRoom, handleGameRequest } from "../workers/game/routes";
 import { archiveTuning, liveTuning } from "../workers/game/runtime";
 import { setLlmCall, type LlmCall } from "../workers/llm/client";
+import { MODELS } from "../workers/game/catalog";
+import { DEFAULT_SETUP, type GameSetup } from "../workers/game/setup";
+import { catalog } from "./live-helpers";
 
 const defaults = { ...liveTuning };
 const HOUR = 3600_000;
 let previous: LlmCall;
 let calls = 0;
-const catalog = () => Response.json({ data: [{ id: MODEL, pricing: { prompt: "0.00000025", completion: "0.0000015", internal_reasoning: "0.0000015" } }] });
 const ok = (text: string, cost: number | null = 0.0001) => ({ ok: true as const, text, cost, cacheHit: false, generationId: "test-generation", latencyMs: 1 });
 
 beforeEach(() => {
@@ -162,14 +163,24 @@ describe("durable live games", () => {
     expect(stored.turns.every(t => t.status === "pending")).toBe(true);
   });
 
-  it("fails closed on unavailable or excessive pricing", async () => {
-    for (const response of [() => new Response("outage", { status: 503 }), () => Response.json({ data: [{ id: MODEL, pricing: { prompt: "1", completion: "1" } }] })]) {
+  it("fails closed on unavailable or excessive pricing for any seated model", async () => {
+    const seated = MODELS[2].id;
+    const setup = { seats: DEFAULT_SETUP.seats.map(s => ({ ...s, model: seated })), pool: [] };
+    for (const [response, error] of [[() => new Response("outage", { status: 503 }), "safe model pricing"], [() => catalog({ overpriced: seated }), `pricing for ${seated}`]] as const) {
       vi.mocked(fetch).mockImplementationOnce(async () => response());
       const id = crypto.randomUUID(), room = liveRoom(env, id);
-      expect(await room.startLive(id, 1)).toMatchObject({ ok: false, status: 503 });
+      expect(await room.startLive(id, 1, setup)).toMatchObject({ ok: false, status: 503, error: expect.stringContaining(error) });
       expect(await room.getLiveSnapshot()).toBeNull();
+      expect(await runInDurableObject(room, (_i, s) => s.storage.getAlarm())).toBeNull();
     }
     expect(calls).toBe(0);
+  });
+
+  it("ignores pricing of pool models that no seat drew", async () => {
+    vi.mocked(fetch).mockImplementationOnce(async () => catalog({ overpriced: MODELS[5].id }));
+    const setup = { seats: DEFAULT_SETUP.seats.map(s => ({ ...s, model: MODELS[0].id })), pool: [MODELS[5].id] };
+    const id = crypto.randomUUID();
+    expect(await liveRoom(env, id).startLive(id, 1, setup)).toEqual({ ok: true });
   });
 
   it("makes duplicate starts idempotent and rejects different settings", async () => {
@@ -179,6 +190,49 @@ describe("durable live games", () => {
     expect(await room.startLive(id, 2)).toMatchObject({ ok: false, status: 409 });
     expect(await room.getLiveSnapshot()).toEqual(initial);
     expect((await inspect(room)).events).toHaveLength(1);
+    // Omitted setup is the default setup.
+    expect(await room.startLive(id, 1, DEFAULT_SETUP)).toEqual({ ok: true });
+    expect(await room.startLive(id, 1, { ...DEFAULT_SETUP, pool: [MODELS[0].id] })).toMatchObject({ ok: false, status: 409 });
+  });
+
+  it("stores a manual mixed setup and sends each turn with its actor's model", async () => {
+    const setup: GameSetup = { seats: MODELS.slice(0, 5).map((m, i) => ({ model: m.id, persona: ["analyst", "accuser", "random", "random", "observer"][i] })), pool: [] };
+    const id = crypto.randomUUID(), room = liveRoom(env, id);
+    expect(await room.startLive(id, 1, setup)).toEqual({ ok: true });
+    expect(await room.startLive(id, 1, setup)).toEqual({ ok: true });
+    expect(await room.startLive(id, 1)).toMatchObject({ ok: false, status: 409 });
+    const { game } = await inspect(room);
+    expect(game).toMatchObject({ version: 2, model: "mixed", setup });
+    expect(game.players.map(p => p.model)).toEqual(MODELS.slice(0, 5).map(m => m.id));
+    const sent: { model: string; actor: string }[] = [];
+    setLlmCall(async request => {
+      const body = JSON.parse(request.body);
+      const view = JSON.parse(body.messages[1].content);
+      sent.push({ model: body.model, actor: view.actor.id });
+      return ok(JSON.stringify(view.phase === "discuss" ? { text: "Hm.", rationale: "r" } : { target: view.allowedTargets[0], rationale: "r" }));
+    });
+    for (let i = 0; i < 6; i++) await alarmNow(room);
+    expect(sent.length).toBe(6);
+    for (const call of sent) expect(call.model).toBe(game.players.find(p => p.id === call.actor)!.model);
+    expect(new Set(sent.map(c => c.model)).size).toBeGreaterThan(1);
+  });
+
+  it("rejects an invalid setup before touching the room", async () => {
+    const id = crypto.randomUUID(), room = liveRoom(env, id);
+    expect(await room.startLive(id, 1, { seats: [], pool: [] })).toMatchObject({ ok: false, status: 400 });
+    const response = await handleGameRequest(new Request("https://example.test/api/games/start", {
+      method: "POST", body: JSON.stringify({ requestId: id, discussionPasses: 1, setup: { seats: [], pool: [] } }),
+    }), env);
+    expect(response?.status).toBe(400);
+    expect(await response?.json()).toEqual({ error: "Configure exactly 5 seats." });
+    expect(await room.getLiveSnapshot()).toBeNull();
+  });
+
+  it("keeps accepting a setup-less repeat for a version-1 room", async () => {
+    const { room, id } = await start();
+    await alter(room, { version: 1, setup: undefined });
+    expect(await room.startLive(id, 1)).toEqual({ ok: true });
+    expect(await room.startLive(id, 1, DEFAULT_SETUP)).toMatchObject({ ok: false, status: 409 });
   });
 
   it("upgrades a legacy spike room without changing its saved story or alarm loop", async () => {

@@ -17,9 +17,9 @@ export async function writeArchive(db: D1Database, record: GameRecord, stateJson
     ).bind(r.id, r.status, r.winner, r.abortReason, r.model, r.discussionPasses, r.players.length, r.days, r.turns,
       r.totalCostUsd, r.unknownCostTurns, r.reservedUsd, r.createdAt, r.endedAt, archivedAt, r.engineVersion, stateJson),
     ...r.players.map(p => db.prepare(
-      `INSERT INTO game_players (game_id, seat, name, role, model, survived) VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO game_players (game_id, seat, name, role, model, persona, survived) VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (game_id, seat) DO NOTHING`,
-    ).bind(r.id, p.seat, p.name, p.role, p.model, p.survived ? 1 : 0)),
+    ).bind(r.id, p.seat, p.name, p.role, p.model, p.persona, p.survived ? 1 : 0)),
     ...r.moves.map(m => db.prepare(
       `INSERT INTO game_moves (game_id, turn_no, day, phase, actor, text, target, result_role, rationale,
          cost_usd, latency_ms, attempts, generation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

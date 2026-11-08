@@ -1,4 +1,5 @@
-import type { Game, Phase, Role } from "./engine";
+import { seatModel, seatPersona, type Game, type Phase, type Role } from "./engine";
+import type { GameSetup } from "./setup";
 
 /** Provider data for one committed move, from `live_turns` or `game_moves`. */
 export type TurnData = {
@@ -26,7 +27,8 @@ export type RecordMove = {
   generationId: string | null;
 };
 
-export type RecordPlayer = { seat: string; name: string; role: Role; model: string; survived: boolean };
+/** `persona` is a roster id; null for version-1 games. */
+export type RecordPlayer = { seat: string; name: string; role: Role; model: string; persona: string | null; survived: boolean };
 
 /** The game in reading order: public entries with their rationale, private night actions inline. */
 export type TimelineItem =
@@ -40,7 +42,10 @@ export type GameRecord = {
   status: "finished" | "aborted";
   winner: Game["winner"];
   abortReason: string | null;
+  /** The model every seat shares, or `"mixed"`. */
   model: string;
+  /** The requested setup; null for version-1 games. */
+  setup: GameSetup | null;
   discussionPasses: number;
   days: number;
   turns: number;
@@ -96,6 +101,7 @@ export function buildRecord(
     winner: game.winner,
     abortReason: game.abortReason,
     model: game.model,
+    setup: game.setup ?? null,
     discussionPasses: game.discussionPasses,
     days: game.day,
     turns: moves.length,
@@ -105,7 +111,7 @@ export function buildRecord(
     createdAt: game.createdAt,
     endedAt,
     engineVersion: game.version,
-    players: game.players.map(p => ({ seat: p.id, name: p.name, role: p.role, model: game.model, survived: p.alive })),
+    players: game.players.map(p => ({ seat: p.id, name: p.name, role: p.role, model: seatModel(game, p), persona: seatPersona(game, p), survived: p.alive })),
     moves,
     timeline: timeline(game, moves),
   };

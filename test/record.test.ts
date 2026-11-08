@@ -106,6 +106,21 @@ describe("game record projection", () => {
     expect(buildRecord(legacy, [], meta)).toEqual(buildRecord(game, [], meta));
   });
 
+  it("carries each seat's model and personality, and keeps version-1 seats on the game model", () => {
+    const game = villageWin();
+    const record = buildRecord(game, [], meta);
+    expect(record.setup).toEqual(game.setup);
+    expect(record.players.map(p => [p.model, p.persona])).toEqual(game.players.map(p => [p.model, p.persona]));
+    const legacy = JSON.parse(JSON.stringify(game)) as Game;
+    legacy.version = 1;
+    legacy.model = "google/gemini-3.1-flash-lite";
+    delete legacy.setup;
+    for (const p of legacy.players) { delete p.model; delete p.persona; }
+    const old = buildRecord(legacy, [], meta);
+    expect(old).toMatchObject({ setup: null, engineVersion: 1, model: "google/gemini-3.1-flash-lite" });
+    expect(old.players.every(p => p.model === "google/gemini-3.1-flash-lite" && p.persona === null)).toBe(true);
+  });
+
   it("refuses a move whose public entry is missing", () => {
     const game = villageWin();
     const withoutNight1 = { ...game, transcript: game.transcript.filter(e => !(e.kind === "phase" && e.text.startsWith("Night 1"))) };

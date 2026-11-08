@@ -1,3 +1,5 @@
+import { parseSetup } from "./setup";
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function liveRoom(env: Env, id: string) {
   return env.GAME_ROOM.get(env.GAME_ROOM.idFromName(`live:${id.toLowerCase()}`));
@@ -11,20 +13,23 @@ export async function handleGameRequest(request: Request, env: Env): Promise<Res
   const parts = url.pathname.slice("/api/games/".length).split("/");
   if (parts.length === 1 && parts[0] === "start" && request.method === "POST") {
     if (request.headers.has("Origin") && request.headers.get("Origin") !== url.origin) return new Response("Forbidden", { status: 403 });
-    if (Number(request.headers.get("Content-Length")) > 2048) return new Response("Request too large", { status: 413 });
+    if (Number(request.headers.get("Content-Length")) > 4096) return new Response("Request too large", { status: 413 });
     const body = await request.text();
-    if (body.length > 2048) return new Response("Request too large", { status: 413 });
+    if (body.length > 4096) return new Response("Request too large", { status: 413 });
     let options: Record<string, unknown>;
     try {
       const value: unknown = JSON.parse(body);
       if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error();
       options = value as Record<string, unknown>;
     } catch { return Response.json({ error: "Expected a JSON object." }, { status: 400 }); }
-    if (typeof options.requestId !== "string" || !validGameId(options.requestId) || ![1, 2].includes(options.discussionPasses as number) || Object.keys(options).some(k => !["requestId", "discussionPasses"].includes(k))) {
+    if (typeof options.requestId !== "string" || !validGameId(options.requestId) || ![1, 2].includes(options.discussionPasses as number) || Object.keys(options).some(k => !["requestId", "discussionPasses", "setup"].includes(k))) {
       return Response.json({ error: "Provide a request UUID and one or two discussion passes." }, { status: 400 });
     }
+    // Omitted means the default setup; the room still needs to know it was omitted (idempotency).
+    const setup = options.setup === undefined ? undefined : parseSetup(options.setup);
+    if (setup && "error" in setup) return Response.json({ error: setup.error }, { status: 400 });
     const id = options.requestId.toLowerCase();
-    const result = await liveRoom(env, id).startLive(id, options.discussionPasses as number);
+    const result = await liveRoom(env, id).startLive(id, options.discussionPasses as number, setup);
     return result.ok ? Response.json({ gameId: id, viewerUrl: `/games/${id}` }, { headers: { "Cache-Control": "no-store" } })
       : Response.json({ error: result.error }, { status: result.status });
   }
