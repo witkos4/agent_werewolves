@@ -1,6 +1,6 @@
 # S-06 verification
 
-Date: 2026-11-08 to 2026-11-09. Status: verified in production (drill below). Open: operator review of the personality texts (plan step 1.6), and resetting the Worker's `last_deployed_from` flag (Deploy).
+Date: 2026-11-08 to 2026-11-09. Status: verified in production (drill below). Open: operator review of the personality texts (plan step 1.6),.
 
 ## Model smoke (Phase 1)
 
@@ -34,7 +34,7 @@ Real dev Worker (`react-router dev`, real OpenRouter key passed through the envi
 
 The merge of #20 (`3111431`, CI run 42530775547) passed on the first try. **Apply D1 migrations** applied `0002_player_persona.sql` (✅). The deploy step published `c7cf8676-f0aa-4f29-845c-eb0845a42b09`, and `/healthz` returned ok.
 
-The operator then rotated `ACCESS_KEY` three times (`c0ff47ee` on 2026-11-08, and `5344908c` and `930d79b6` on 2026-11-09). Each rotation is a secret-only version on the same code. The Cloudflare API reports `last_deployed_from: dash` for `agent-werewolves` (modified 2026-11-09T20:55:20Z), so the next CI deploy will hit the "Unable to fetch bindings, routes, or services metadata" failure from S-03 unless one same-commit laptop `npm run deploy` runs first (README → CI secrets and variables).
+The operator then rotated `ACCESS_KEY` three times (`c0ff47ee` on 2026-11-08, and `5344908c` and `930d79b6` on 2026-11-09). Each rotation is a secret-only version on the same code. The Cloudflare API reports `last_deployed_from: dash` for `agent-werewolves` (modified 2026-11-09T20:55:20Z), so the next CI deploy will hit the "Unable to fetch bindings, routes, or services metadata" failure from S-03 unless one same-commit laptop `npm run deploy` runs first (README → CI secrets and variables). At 21:16 UTC a laptop deploy of the same code (docs-only diff from `3111431`) published `04d277dd-8f75-43ea-a7ea-351a9c426405`. The flag then read `wrangler`, `/healthz` returned ok, and the current key passed the gate (200). The operator also rotated the GitHub `CLOUDFLARE_API_TOKEN`; the next merge's CI run is its first real use.
 
 Rollback note (from the plan): pre-S-06 code would run a v2 room's seats with `game.model = "mixed"`, which OpenRouter rejects. Such a game aborts with `provider_error` and still archives.
 
