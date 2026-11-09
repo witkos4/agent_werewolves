@@ -367,11 +367,11 @@ Request bodies grow by one persona sentence (about 200 bytes), well inside `MAX_
 
 #### Automated
 
-- [ ] 4.1 CI applies migration 0002 and deploys; healthz passes
-- [ ] 4.2 Remote D1 shows per-seat models for the drill game
+- [x] 4.1 CI applies migration 0002 and deploys; healthz passes
+- [x] 4.2 Remote D1 shows per-seat models for the drill game
 
 #### Manual
 
-- [ ] 4.3 Default and manual production games play to the end
-- [ ] 4.4 Records show the right seat labels and mixed summary
-- [ ] 4.5 An S-03 game still opens as a record
+- [x] 4.3 Default and manual production games play to the end
+- [x] 4.4 Records show the right seat labels and mixed summary
+- [x] 4.5 An S-03 game still opens as a record
