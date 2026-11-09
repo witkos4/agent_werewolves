@@ -8,7 +8,7 @@ import { liveRoom, handleGameRequest } from "../workers/game/routes";
 import { archiveTuning, liveTuning } from "../workers/game/runtime";
 import { setLlmCall, type LlmCall } from "../workers/llm/client";
 import { MODELS } from "../workers/game/catalog";
-import { DEFAULT_SETUP, type GameSetup } from "../workers/game/setup";
+import { DEFAULT_SETUP, SEAT_COUNT, type GameSetup } from "../workers/game/setup";
 import { catalog } from "./live-helpers";
 
 const defaults = { ...liveTuning };
@@ -52,16 +52,18 @@ async function alter(room: DurableObjectStub<GameRoom>, patch: Partial<Game>) {
 describe("durable live games", () => {
   it("finishes a game after eviction, reveals roles only at the end and never repeats an accepted move", async () => {
     const { room } = await start();
-    const wolf = (await inspect(room)).game.players.find(p => p.role === "Werewolf")!.id;
+    const wolves = (await inspect(room)).game.players.filter(p => p.role === "Werewolf").map(p => p.id);
     setLlmCall(async request => {
       calls++;
       const view = JSON.parse(JSON.parse(request.body).messages[1].content);
+      const target = view.actor.role !== "Werewolf" ? wolves.find(id => view.allowedTargets.includes(id)) ?? view.allowedTargets[0]
+        : view.allowedTargets.filter((id: string) => !wolves.includes(id)).at(-1);
       return ok(JSON.stringify(view.phase === "discuss" ? { text: "Let's compare our suspicions.", rationale: "private-rationale" }
-        : { target: view.actor.role !== "Werewolf" ? wolf : view.allowedTargets.at(-1), rationale: "private-rationale" }));
+        : { target, rationale: "private-rationale" }));
     });
     expect(await runDurableObjectAlarm(room)).toBe(true);
     await evictDurableObject(room);
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 80; i++) {
       if ((await room.getLiveSnapshot())!.game.status !== "running") break;
       expect(await runDurableObjectAlarm(room)).toBe(true);
     }
@@ -124,7 +126,7 @@ describe("durable live games", () => {
 
   it("reserves before a call and stops before exceeding the safety allowance", async () => {
     const { room } = await start();
-    await runInDurableObject(room, (_i, s) => { s.storage.sql.exec("UPDATE live_game SET reserved_usd = 0.25"); });
+    await runInDurableObject(room, (_i, s) => { s.storage.sql.exec("UPDATE live_game SET reserved_usd = 1.0"); });
     await alarmNow(room);
     expect((await room.getLiveSnapshot())!.game.abortReason).toBe("safety_budget");
     expect(calls).toBe(0);
@@ -200,14 +202,15 @@ describe("durable live games", () => {
   });
 
   it("stores a manual mixed setup and sends each turn with its actor's model", async () => {
-    const setup: GameSetup = { seats: MODELS.slice(0, 5).map((m, i) => ({ model: m.id, persona: ["analyst", "accuser", "random", "random", "observer"][i] })), pool: [] };
+    const models = Array.from({ length: SEAT_COUNT }, (_, i) => MODELS[i % MODELS.length].id);
+    const setup: GameSetup = { seats: models.map((model, i) => ({ model, persona: ["analyst", "accuser", "random", "random", "loyalist", "random", "random", "random"][i] })), pool: [] };
     const id = crypto.randomUUID(), room = liveRoom(env, id);
     expect(await room.startLive(id, 1, setup)).toEqual({ ok: true });
     expect(await room.startLive(id, 1, setup)).toEqual({ ok: true });
     expect(await room.startLive(id, 1)).toMatchObject({ ok: false, status: 409 });
     const { game } = await inspect(room);
     expect(game).toMatchObject({ version: 2, model: "mixed", setup });
-    expect(game.players.map(p => p.model)).toEqual(MODELS.slice(0, 5).map(m => m.id));
+    expect(game.players.map(p => p.model)).toEqual(models);
     const sent: { model: string; actor: string }[] = [];
     setLlmCall(async request => {
       const body = JSON.parse(request.body);
@@ -228,7 +231,7 @@ describe("durable live games", () => {
       method: "POST", body: JSON.stringify({ requestId: id, discussionPasses: 1, setup: { seats: [], pool: [] } }),
     }), env);
     expect(response?.status).toBe(400);
-    expect(await response?.json()).toEqual({ error: "Configure exactly 5 seats." });
+    expect(await response?.json()).toEqual({ error: "Configure exactly 8 seats." });
     expect(await room.getLiveSnapshot()).toBeNull();
   });
 

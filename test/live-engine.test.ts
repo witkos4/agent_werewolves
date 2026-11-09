@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { agentView, applyMove, buildRequest, createGame, MODEL, publicGame, validateMove, type Game } from "../workers/game/engine";
+import { agentView, applyMove, buildRequest, createGame, MODEL, publicGame, rolesFor, validateMove, type Game } from "../workers/game/engine";
 import { MODELS } from "../workers/game/catalog";
 import type { GameSetup } from "../workers/game/setup";
 
-// No swaps: p1 wolf, p2 Seer, p3–p5 villagers.
+// No swaps: p1 wolf, p2 Seer, p3 wolf, p4–p8 villagers.
 const setup = (passes = 1) => createGame("test-game", passes, 100, undefined, length => length - 1);
 const target = (game: Game, id: string) => applyMove(game, { target: id, rationale: "private-sentinel" }, () => 0);
 const speak = (game: Game) => applyMove(game, { text: "What did you notice?", rationale: "private-sentinel" });
@@ -11,48 +11,98 @@ function discussion(game: Game) {
   while (game.phase === "discuss") game = speak(game);
   return game;
 }
+/** The Seer (if alive) checks `check`, then every living wolf picks `victim`. */
+function night(game: Game, check: string, victim: string) {
+  if (game.phase === "investigate") game = target(game, check);
+  while (game.status === "running" && game.phase === "kill") game = target(game, victim);
+  return game;
+}
+/** Everyone votes `id` out; `id` itself votes for `other`. */
+function voteOut(game: Game, id: string, other: string) {
+  while (game.status === "running" && game.phase === "vote") game = target(game, game.queue[0] === id ? other : id);
+  return game;
+}
 
 describe("Werewolf rules and information boundaries", () => {
+  it("seats eight players by the composition rule", () => {
+    expect(setup().players.map(p => [p.id, p.name, p.role])).toEqual([
+      ["p1", "Ada", "Werewolf"], ["p2", "Bram", "Seer"], ["p3", "Cora", "Werewolf"], ["p4", "Dax", "Villager"],
+      ["p5", "Esme", "Villager"], ["p6", "Finn", "Villager"], ["p7", "Gwen", "Villager"], ["p8", "Hugo", "Villager"],
+    ]);
+    expect([5, 6, 8, 9].map(n => rolesFor(n).filter(r => r === "Werewolf").length)).toEqual([1, 2, 2, 3]);
+    for (let i = 0; i < 20; i++) expect(createGame("g", 1, 100).players.filter(p => p.role === "Werewolf")).toHaveLength(2);
+  });
+
   it("runs night, bounded discussion and simultaneous votes to a village win", () => {
-    let game = target(setup(), "p1");
-    game = target(game, "p5");
-    expect(game.players.find(p => p.id === "p5")?.alive).toBe(false);
+    let game = night(setup(), "p1", "p8");
+    expect(game.players.find(p => p.id === "p8")?.alive).toBe(false);
     game = discussion(game);
     expect(game.phase).toBe("vote");
-    game = target(game, "p3"); // Wolf's vote is not yet public.
+    game = target(game, "p4"); // Wolf's vote is not yet public.
     expect(game.transcript.some(e => e.kind === "votes")).toBe(false);
     expect(agentView(game)).not.toHaveProperty("votes");
-    while (game.status === "running") game = target(game, "p1");
+    game = voteOut(game, "p1", "p4");
+    expect(game).toMatchObject({ status: "running", day: 2, phase: "investigate" });
+    game = discussion(night(game, "p3", "p7"));
+    game = voteOut(game, "p3", "p4");
     expect(game.winner).toBe("Village");
     expect(publicGame(game).players.every(p => p.role)).toBe(true);
-    expect(game.transcript.filter(e => e.kind === "speech")).toHaveLength(4);
-    expect(game.transcript.filter(e => e.kind === "votes")).toHaveLength(1);
+    expect(game.transcript.filter(e => e.kind === "speech")).toHaveLength(7 + 5);
+    expect(game.transcript.filter(e => e.kind === "votes")).toHaveLength(2);
+  });
+
+  it("kills the wolves' most-picked target, breaking ties at random", () => {
+    let game = target(setup(), "p4"); // Seer
+    expect(game.queue).toEqual(["p1", "p3"]);
+    game = target(game, "p5");
+    expect(game.players.every(p => p.alive)).toBe(true);
+    expect(game.transcript.some(e => e.kind === "death")).toBe(false);
+    game = target(game, "p6");
+    // p5 and p6 tie; the pick takes the first sorted id.
+    expect(game.players.filter(p => !p.alive).map(p => p.id)).toEqual(["p5"]);
+    expect(game).toMatchObject({ phase: "discuss", votes: {} });
+    const agreed = night(setup(), "p4", "p6");
+    expect(agreed.players.filter(p => !p.alive).map(p => p.id)).toEqual(["p6"]);
   });
 
   it("ends at wolf parity and skips a dead Seer's future actions", () => {
-    let game = target(setup(2), "p1");
-    game = target(game, "p2");
+    let game = night(setup(2), "p1", "p2");
     game = discussion(game);
-    expect(game.transcript.filter(e => e.kind === "speech")).toHaveLength(8);
-    while (game.phase === "vote") game = target(game, game.queue[0] === "p5" ? "p4" : "p5");
-    expect(game).toMatchObject({ day: 2, phase: "kill", queue: ["p1"] });
-    game = target(game, "p4");
+    expect(game.transcript.filter(e => e.kind === "speech")).toHaveLength(14);
+    game = voteOut(game, "p8", "p4");
+    expect(game).toMatchObject({ day: 2, phase: "kill", queue: ["p1", "p3"] });
+    game = discussion(night(game, "", "p7"));
+    game = voteOut(game, "p6", "p4");
     expect(game).toMatchObject({ status: "finished", winner: "Werewolves", queue: [] });
-    expect(() => target(game, "p3")).toThrow();
+    expect(() => target(game, "p4")).toThrow();
   });
 
   it("resolves tied votes once and records the chosen tied player publicly", () => {
-    let game = discussion(target(target(setup(), "p1"), "p5"));
-    game = target(game, "p3");
+    let game = discussion(night(setup(), "p1", "p8"));
+    for (const id of ["p4", "p5", "p4", "p5", "p4", "p5", "p6"]) game = target(game, id);
+    expect(game.players.find(p => p.id === "p4")?.alive).toBe(false);
+    expect(game.transcript.find(e => e.kind === "votes")?.text).toContain("Tie: p4 chosen at random");
+  });
+
+  it("shows a wolf only its teammates' picks from the current night", () => {
+    let game = target(setup(), "p4");
+    expect(agentView(game)).toMatchObject({ actor: { id: "p1" }, teammates: ["p3"], teamKillVotes: {} });
+    expect(agentView(game).allowedTargets).toEqual(["p2", "p4", "p5", "p6", "p7", "p8"]);
+    expect(() => target(game, "p3")).toThrow("invalid_target");
+    game = target(game, "p6");
+    expect(agentView(game)).toMatchObject({ actor: { id: "p3" }, teammates: ["p1"], teamKillVotes: { p1: "p6" } });
+    expect(JSON.stringify(agentView(game).teamKillVotes)).not.toContain("private-sentinel");
+    game = discussion(target(game, "p6"));
+    game = target(game, "p4"); // p1's secret day vote
+    game = target(game, "p4"); // p2
+    expect(agentView(game)).toMatchObject({ actor: { id: "p3" }, teamKillVotes: {} });
     game = target(game, "p4");
-    game = target(game, "p4");
-    game = target(game, "p3");
-    expect(game.players.find(p => p.id === "p3")?.alive).toBe(false);
-    expect(game.transcript.find(e => e.kind === "votes")?.text).toContain("Tie: p3 chosen at random");
+    expect(agentView(game).actor.role).toBe("Villager");
+    expect(agentView(game)).not.toHaveProperty("teamKillVotes");
   });
 
   it("never serializes other agents' private facts or unrevealed authoritative roles", () => {
-    let game = target(target(setup(), "p1"), "p5");
+    let game = night(setup(), "p1", "p8");
     game.privateMoves.find(m => m.actor === "p2")!.move.rationale = "seer-secret-sentinel";
     // p1 speaks first: the wolf must not receive the Seer's investigation/rationale.
     const wolf = agentView(game);
@@ -64,9 +114,11 @@ describe("Werewolf rules and information boundaries", () => {
     expect(seer.actor.role).toBe("Seer");
     expect(seer.investigations).toEqual([{ target: "p1", role: "Werewolf" }]);
     expect(seer.ownMoves.every(m => m.actor === "p2")).toBe(true);
+    expect(seer).not.toHaveProperty("teamKillVotes");
+    expect(JSON.stringify(seer.teammates)).toBe("[]");
     const visible = publicGame(game);
     expect(visible.players.every(p => !Object.hasOwn(p, "role"))).toBe(true);
-    for (const secret of ["private-sentinel", "investigations", "privateMoves", "queue", "votes"]) {
+    for (const secret of ["private-sentinel", "investigations", "privateMoves", "queue", "votes", "teamKillVotes"]) {
       expect(JSON.stringify(visible)).not.toContain(secret);
     }
     const aborted = publicGame({ ...game, status: "aborted" });
@@ -78,10 +130,10 @@ describe("Werewolf rules and information boundaries", () => {
     for (const value of ["not JSON", "[]", '{"target":"p2","rationale":"x"}', '{"target":"p1","rationale":"x","role":"Seer"}', '{"target":"missing","rationale":"x"}', '{"target":"p1"}']) {
       expect(() => validateMove(game, value)).toThrow();
     }
-    const day = target(target(game, "p1"), "p5");
+    const day = night(game, "p1", "p8");
     expect(() => validateMove(day, JSON.stringify({ text: "x".repeat(401), rationale: "x" }))).toThrow();
     const vote = discussion(day);
-    expect(() => target(vote, "p5")).toThrow();
+    expect(() => target(vote, "p8")).toThrow();
   });
 
   it("keeps requests stable, gives turns distinct identities and refuses context overflow", () => {
@@ -98,7 +150,7 @@ describe("mixed-model seats and personalities", () => {
   const ids = MODELS.map(m => m.id);
   const mixed: GameSetup = {
     seats: [
-      { model: ids[1], persona: "analyst" }, { model: ids[0], persona: "accuser" }, { model: ids[2], persona: "observer" },
+      { model: ids[1], persona: "analyst" }, { model: ids[0], persona: "accuser" }, { model: ids[2], persona: "loyalist" },
       { model: ids[3], persona: "diplomat" }, { model: ids[3], persona: "contrarian" },
     ],
     pool: [],
@@ -147,7 +199,7 @@ describe("mixed-model seats and personalities", () => {
     expect(request).not.toHaveProperty("temperature");
     const text = JSON.stringify(request);
     expect(text).toContain("The Analyst");
-    for (const other of ["The Accuser", "The Quiet Observer", "The Diplomat", ids[0], ids[2], ids[3]]) expect(text).not.toContain(other);
+    for (const other of ["The Accuser", "The Loyalist", "The Diplomat", ids[0], ids[2], ids[3]]) expect(text).not.toContain(other);
     expect(publicGame(game).players[0]).toMatchObject({ model: ids[1], persona: "The Analyst" });
   });
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { applyMove, createGame, type Game, type Move } from "../workers/game/engine";
 import { buildRecord, type TimelineItem, type TurnData } from "../workers/game/record";
 
-// No swaps: p1 wolf, p2 Seer, p3–p5 villagers.
+// No swaps: p1 wolf, p2 Seer, p3 wolf, p4–p8 villagers.
 const setup = (passes = 1) => createGame("record-game", passes, 100, undefined, length => length - 1);
 const meta = { endedAt: 500, reservedUsd: 0.01 };
 const why = (game: Game) => `why-${game.turn}`;
@@ -10,6 +10,11 @@ const target = (game: Game, id: string, pick = () => 0) => applyMove(game, { tar
 const speak = (game: Game) => applyMove(game, { text: `says-${game.turn}`, rationale: why(game) });
 function discussion(game: Game) {
   while (game.phase === "discuss") game = speak(game);
+  return game;
+}
+/** Everyone votes `id` out; `id` itself votes for `other`. */
+function voteOut(game: Game, id: string, other: string) {
+  while (game.status === "running" && game.phase === "vote") game = target(game, game.queue[0] === id ? other : id);
   return game;
 }
 const shape = (items: TimelineItem[]) => items.map(i =>
@@ -23,13 +28,16 @@ function expectEveryMoveOnce(game: Game, items: TimelineItem[]) {
   expect([...turns].sort((a, b) => a - b)).toEqual(game.privateMoves.map((_, i) => i + 1));
 }
 
-/** Seer checks the wolf, wolf kills p5, then the village votes the wolf out. */
+/**
+ * Night 1: the Seer checks p1, both wolves kill p8; the village votes p1 out.
+ * Night 2: the Seer checks p3, p3 kills p7; the village votes p3 out.
+ */
 function villageWin() {
   let game = target(setup(), "p1");
-  game = target(game, "p5");
-  game = discussion(game);
-  while (game.status === "running") game = target(game, game.queue[0] === "p1" ? "p2" : "p1");
-  return game;
+  game = target(target(game, "p8"), "p8");
+  game = voteOut(discussion(game), "p1", "p2");
+  game = target(target(game, "p3"), "p7");
+  return voteOut(discussion(game), "p3", "p2");
 }
 
 describe("game record projection", () => {
@@ -37,66 +45,84 @@ describe("game record projection", () => {
     const game = villageWin();
     const record = buildRecord(game, [], meta);
 
-    expect(record).toMatchObject({ status: "finished", winner: "Village", turns: 10, days: 1, totalCostUsd: null, unknownCostTurns: 10 });
+    expect(record).toMatchObject({ status: "finished", winner: "Village", turns: 29, days: 2, totalCostUsd: null, unknownCostTurns: 29 });
     expect(record.players.map(p => [p.seat, p.role, p.survived])).toEqual([
-      ["p1", "Werewolf", false], ["p2", "Seer", true], ["p3", "Villager", true], ["p4", "Villager", true], ["p5", "Villager", false],
+      ["p1", "Werewolf", false], ["p2", "Seer", true], ["p3", "Werewolf", false], ["p4", "Villager", true],
+      ["p5", "Villager", true], ["p6", "Villager", true], ["p7", "Villager", false], ["p8", "Villager", false],
     ]);
     expect(shape(record.timeline)).toEqual([
       "phase: Night 1: the village sleeps.",
       "night investigate p2→p1=Werewolf why-1",
-      "night kill p1→p5 why-2",
-      "death: Esme (p5) died during the night.",
+      "night kill p1→p8 why-2",
+      "night kill p3→p8 why-3",
+      "death: Hugo (p8) died during the night.",
       "phase: Day 1: discussion begins.",
-      "speech p1 why-3", "speech p2 why-4", "speech p3 why-5", "speech p4 why-6",
+      "speech p1 why-4", "speech p2 why-5", "speech p3 why-6", "speech p4 why-7", "speech p5 why-8", "speech p6 why-9", "speech p7 why-10",
       "phase: Voting begins. Votes are revealed together.",
-      "vote p1→p2 why-7", "vote p2→p1 why-8", "vote p3→p1 why-9", "vote p4→p1 why-10",
-      "votes: p1 → p2; p2 → p1; p3 → p1; p4 → p1.",
+      "vote p1→p2 why-11", "vote p2→p1 why-12", "vote p3→p1 why-13", "vote p4→p1 why-14", "vote p5→p1 why-15", "vote p6→p1 why-16", "vote p7→p1 why-17",
+      "votes: p1 → p2; p2 → p1; p3 → p1; p4 → p1; p5 → p1; p6 → p1; p7 → p1.",
       "death: Ada (p1) was eliminated by the village.",
+      "phase: Night 2: the village sleeps.",
+      "night investigate p2→p3=Werewolf why-18",
+      "night kill p3→p7 why-19",
+      "death: Gwen (p7) died during the night.",
+      "phase: Day 2: discussion begins.",
+      "speech p2 why-20", "speech p3 why-21", "speech p4 why-22", "speech p5 why-23", "speech p6 why-24",
+      "phase: Voting begins. Votes are revealed together.",
+      "vote p2→p3 why-25", "vote p3→p2 why-26", "vote p4→p3 why-27", "vote p5→p3 why-28", "vote p6→p3 why-29",
+      "votes: p2 → p3; p3 → p2; p4 → p3; p5 → p3; p6 → p3.",
+      "death: Cora (p3) was eliminated by the village.",
     ]);
     const speech = record.timeline.find(i => i.kind === "speech");
-    expect(speech).toMatchObject({ text: "says-3", rationale: "why-3" });
+    expect(speech).toMatchObject({ text: "says-4", rationale: "why-4" });
     expectEveryMoveOnce(game, record.timeline);
   });
 
   it("handles two discussion passes, a tie vote and a dead Seer across days", () => {
-    let game = target(setup(2), "p3"); // Seer checks a villager.
-    game = target(game, "p2"); // Wolf kills the Seer.
+    let game = target(setup(2), "p4"); // Seer checks a villager.
+    game = target(target(game, "p2"), "p2"); // Wolves kill the Seer.
     game = discussion(game);
-    // p1→p3, p3→p4, p4→p3, p5→p4: p3 and p4 tie, the pick takes p3.
-    for (const vote of ["p3", "p4", "p3", "p4"]) game = target(game, vote);
-    expect(game).toMatchObject({ day: 2, phase: "kill" });
-    game = target(game, "p4");
+    // p4 and p5 tie on three votes each; the pick takes p4.
+    for (const vote of ["p4", "p5", "p5", "p4", "p4", "p5", "p6"]) game = target(game, vote);
+    expect(game).toMatchObject({ day: 2, phase: "kill", queue: ["p1", "p3"] });
+    game = target(target(game, "p5"), "p5");
+    game = voteOut(discussion(game), "p6", "p7");
     expect(game).toMatchObject({ status: "finished", winner: "Werewolves" });
     const record = buildRecord(game, [], meta);
 
     const lines = shape(record.timeline);
-    expect(lines.filter(l => l.startsWith("speech"))).toHaveLength(8);
-    expect(lines.filter(l => l.startsWith("vote "))).toEqual(["vote p1→p3 why-11", "vote p3→p4 why-12", "vote p4→p3 why-13", "vote p5→p4 why-14"]);
-    expect(lines.find(l => l.startsWith("votes:"))).toContain("Tie: p3 chosen at random");
-    // Night 2 has only the kill: the dead Seer does not act.
+    expect(lines.filter(l => l.startsWith("speech"))).toHaveLength(14 + 10);
+    expect(lines.filter(l => l.startsWith("vote ")).slice(0, 7)).toEqual([
+      "vote p1→p4 why-18", "vote p3→p5 why-19", "vote p4→p5 why-20", "vote p5→p4 why-21", "vote p6→p4 why-22", "vote p7→p5 why-23", "vote p8→p6 why-24",
+    ]);
+    expect(lines.find(l => l.startsWith("votes:"))).toContain("Tie: p4 chosen at random");
+    // Night 2 has only the kills: the dead Seer does not act.
     const night2 = lines.indexOf("phase: Night 2: the village sleeps.");
-    expect(lines.slice(night2 + 1)).toEqual(["night kill p1→p4 why-15", "death: Dax (p4) died during the night."]);
+    expect(lines.slice(night2 + 1, night2 + 5)).toEqual([
+      "night kill p1→p5 why-25", "night kill p3→p5 why-26", "death: Esme (p5) died during the night.", "phase: Day 2: discussion begins.",
+    ]);
     expect(record.days).toBe(2);
     expectEveryMoveOnce(game, record.timeline);
   });
 
   it("records an aborted game up to its last committed move with known and unknown costs", () => {
-    let game = target(setup(), "p3");
-    game = target(game, "p4");
+    let game = target(setup(), "p4");
+    game = target(target(game, "p5"), "p5");
     game = speak(game);
     game = { ...game, status: "aborted", abortReason: "provider_error", queue: [] };
     const turns: TurnData[] = [
       { turnNo: 1, costUsd: 0.001, latencyMs: 900, attempts: 1, generationId: "g1" },
       { turnNo: 2, costUsd: null, latencyMs: 800, attempts: 2, generationId: "g2" },
       { turnNo: 3, costUsd: 0.002, latencyMs: 700, attempts: 1, generationId: "g3" },
+      { turnNo: 4, costUsd: null, latencyMs: 600, attempts: 1, generationId: "g4" },
     ];
     const record = buildRecord(game, turns, meta);
 
-    expect(record).toMatchObject({ status: "aborted", winner: null, abortReason: "provider_error", turns: 3, unknownCostTurns: 1, endedAt: 500, reservedUsd: 0.01 });
+    expect(record).toMatchObject({ status: "aborted", winner: null, abortReason: "provider_error", turns: 4, unknownCostTurns: 2, endedAt: 500, reservedUsd: 0.01 });
     expect(record.totalCostUsd).toBeCloseTo(0.003);
-    expect(record.moves[1]).toMatchObject({ turnNo: 2, phase: "kill", actor: "p1", target: "p4", costUsd: null, latencyMs: 800, attempts: 2, generationId: "g2" });
+    expect(record.moves[1]).toMatchObject({ turnNo: 2, phase: "kill", actor: "p1", target: "p5", costUsd: null, latencyMs: 800, attempts: 2, generationId: "g2" });
     expect(record.moves[0].resultRole).toBe("Villager");
-    expect(shape(record.timeline).at(-1)).toBe("speech p1 why-3");
+    expect(shape(record.timeline).at(-1)).toBe("speech p1 why-4");
     expectEveryMoveOnce(game, record.timeline);
   });
 

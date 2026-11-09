@@ -1,6 +1,6 @@
 import { MODELS, PERSONAS } from "./catalog";
 
-export const SEAT_COUNT = 5;
+export const SEAT_COUNT = 8;
 export const RANDOM = "random";
 
 /** A seat's requested model and personality: a catalog id, or `"random"`. */

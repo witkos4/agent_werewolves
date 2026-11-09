@@ -25,19 +25,21 @@ export function readGame(room: DurableObjectStub<GameRoom>) {
   return runInDurableObject(room, (_i, s) => JSON.parse(s.storage.sql.exec<{ state: string }>("SELECT state FROM live_game").one().state) as Game);
 }
 
-/** Every agent gives `rationale`; non-wolves vote out the wolf, so the village wins. */
+/** Every agent gives `rationale`; non-wolves vote out the first living wolf, so the village wins. */
 export async function stubVillageWin(room: DurableObjectStub<GameRoom>, rationale: string) {
-  const wolf = (await readGame(room)).players.find(p => p.role === "Werewolf")!.id;
+  const wolves = (await readGame(room)).players.filter(p => p.role === "Werewolf").map(p => p.id);
   setLlmCall(async request => {
     const view = JSON.parse(JSON.parse(request.body).messages[1].content);
+    const wolf = wolves.find(id => view.allowedTargets.includes(id));
+    const villager = view.allowedTargets.filter((id: string) => !wolves.includes(id)).at(-1);
     return ok(JSON.stringify(view.phase === "discuss" ? { text: "I have doubts.", rationale }
-      : { target: view.actor.role !== "Werewolf" ? wolf : view.allowedTargets.at(-1), rationale }));
+      : { target: view.actor.role !== "Werewolf" ? wolf ?? view.allowedTargets[0] : villager, rationale }));
   });
 }
 
 /** Plays a stubbed game to a village win; any archive alarm is left to the caller. */
 export async function playToFinish(room: DurableObjectStub<GameRoom>, rationale: string) {
   await stubVillageWin(room, rationale);
-  for (let i = 0; i < 40 && (await readGame(room)).status === "running"; i++) await runDurableObjectAlarm(room);
+  for (let i = 0; i < 80 && (await readGame(room)).status === "running"; i++) await runDurableObjectAlarm(room);
   expect((await readGame(room)).status).toBe("finished");
 }
