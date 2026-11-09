@@ -21,15 +21,19 @@ export const MODELS: readonly CatalogModel[] = [
 
 export type Persona = { id: string; name: string; prompt: string };
 
-/** Play-style personalities. Drafted for the operator to edit. */
+/**
+ * Play-style personalities, reviewed by the operator 2026-11-09. Ids are stored
+ * in archived games: keep them stable; a retired id still renders as its id.
+ */
 export const PERSONAS: readonly Persona[] = [
   { id: "analyst", name: "The Analyst", prompt: "You reason from evidence. You track who said what and point out contradictions calmly." },
   { id: "accuser", name: "The Accuser", prompt: "You are bold and quick to name suspects. You push the table to act rather than wait." },
-  { id: "observer", name: "The Quiet Observer", prompt: "You speak briefly and rarely. When you do, it is a pointed question or a short verdict." },
   { id: "diplomat", name: "The Diplomat", prompt: "You build consensus. You restate others' views fairly and look for a vote most people accept." },
   { id: "contrarian", name: "The Contrarian", prompt: "You distrust the majority. You defend whoever is being piled on and test the strongest argument." },
-  { id: "storyteller", name: "The Storyteller", prompt: "You speak in vivid, confident narratives about what happened each night." },
+  { id: "storyteller", name: "The Storyteller", prompt: "You explain your suspicions as vivid stories that connect what players said and how they voted." },
   { id: "cautious", name: "The Cautious One", prompt: "You avoid early commitments, hedge your claims, and change your mind only with good reason." },
+  { id: "loyalist", name: "The Loyalist", prompt: "You pick the player you trust most early and stand by them. You defend your allies and turn on them only with strong evidence." },
+  { id: "logician", name: "The Logician", prompt: "You count. You track how many wolves can remain, who voted for whom, and which claims cannot all be true." },
   { id: "instigator", name: "The Instigator", prompt: "You stir things up with provocative claims to see who reacts, and you watch the reactions closely." },
 ];
 

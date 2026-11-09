@@ -60,10 +60,11 @@ describe("archive outbox", () => {
     const fromRoom = (await room.getRecord())!;
     expect(fromRoom.archived).toBe(true);
     expect(await readArchivedRecord(env.ARCHIVE, id)).toEqual(fromRoom.record);
-    expect(await counts(id)).toEqual({ games: 1, players: 5, moves: fromRoom.record.turns });
+    expect(await counts(id)).toEqual({ games: 1, players: 8, moves: fromRoom.record.turns });
     const moves = await env.ARCHIVE.prepare("SELECT rationale, cost_usd, latency_ms, attempts FROM game_moves WHERE game_id = ?").bind(id).all();
     expect(moves.results.every(m => m.rationale === "private-archive-rationale" && m.cost_usd === 0.0001 && m.latency_ms === 5 && m.attempts === 1)).toBe(true);
-    expect((await listRecentGames(env.ARCHIVE)).find(g => g.id === id)).toMatchObject({ status: "finished", winner: "Village" });
+    // Other test files archive into the same D1 concurrently, so look past the 20 most recent.
+    expect((await listRecentGames(env.ARCHIVE, 1000)).find(g => g.id === id)).toMatchObject({ status: "finished", winner: "Village" });
     // The public snapshot and socket events stay free of private reasoning even after archiving.
     const publicData = JSON.stringify(await room.getLiveSnapshot()) + JSON.stringify(await runInDurableObject(room, (_i, s) => s.storage.sql.exec("SELECT payload FROM events").toArray()));
     for (const secret of ["private-archive-rationale", "privateMoves", "investigations"]) expect(publicData).not.toContain(secret);
@@ -117,7 +118,7 @@ describe("archive outbox", () => {
     await evictDurableObject(room);
     await runDurableObjectAlarm(room);
     expect((await state(room)).archive).toMatchObject({ status: "archived" });
-    expect(await counts(id)).toEqual({ games: 1, players: 5, moves: record.turns });
+    expect(await counts(id)).toEqual({ games: 1, players: 8, moves: record.turns });
   });
 
   it("archives after an eviction between the terminal state and the write", async () => {
@@ -167,7 +168,8 @@ describe("archive outbox", () => {
 
   it("archives each seat's model and personality, and a mixed or shared summary model", async () => {
     const seatsOf = (id: string) => env.ARCHIVE.prepare("SELECT seat, model, persona FROM game_players WHERE game_id = ? ORDER BY seat").bind(id).all<{ seat: string; model: string; persona: string | null }>();
-    const mixed = { seats: MODELS.slice(0, 5).map((m, i) => ({ model: m.id, persona: ["analyst", "accuser", "observer", "diplomat", "contrarian"][i] })), pool: [] };
+    const personas = ["analyst", "accuser", "loyalist", "diplomat", "contrarian", "logician", "storyteller", "instigator"];
+    const mixed = { seats: personas.map((persona, i) => ({ model: MODELS[i % MODELS.length].id, persona })), pool: [] };
     const { room, id } = await start(mixed);
     await playToFinish(room);
     await runDurableObjectAlarm(room);
@@ -195,7 +197,7 @@ describe("archive outbox", () => {
     await playToFinish(room);
     await runDurableObjectAlarm(room);
     const rows = await env.ARCHIVE.prepare("SELECT model, persona FROM game_players WHERE game_id = ?").bind(id).all();
-    expect(rows.results).toEqual(Array.from({ length: 5 }, () => ({ model: "google/gemini-3.1-flash-lite", persona: null })));
+    expect(rows.results).toEqual(Array.from({ length: 8 }, () => ({ model: "google/gemini-3.1-flash-lite", persona: null })));
   });
 
   it("queues a legacy terminal room that predates archiving when it is next opened", async () => {

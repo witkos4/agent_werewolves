@@ -337,7 +337,7 @@ Request bodies grow by one persona sentence (about 200 bytes), well inside `MAX_
 #### Manual
 
 - [x] 1.5 Model smoke succeeds for every catalog model — 3c99789
-- [ ] 1.6 Operator reviewed the personality texts
+- [x] 1.6 Operator reviewed the personality texts — 2026-11-09: removed The Quiet Observer, added The Loyalist and The Logician, reworded The Storyteller
 
 ### Phase 2: Start API, pricing and archive
 

@@ -133,7 +133,7 @@ function LiveGame({ snapshot: loaderData }: { snapshot: Snapshot }) {
       </div>
       {connection === "sign-in" && <p role="alert">Your session may have expired. <a className="underline" href={`/login?next=${encodeURIComponent(`/games/${game.id}`)}`}>Sign in to reconnect</a>.</p>}
       {game.status === "aborted" && <p role="alert" className="rounded-lg border border-amber-400 p-4">{abortMessage(game.abortReason)} No winner was declared.</p>}
-      <ul className="grid grid-cols-5 gap-2" aria-label="Players">
+      <ul className="grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Players">
         {game.players.map(player => <li key={player.id} className={`rounded-lg border border-gray-300 p-3 text-center dark:border-gray-700 ${!player.alive ? "opacity-60" : ""}`}>
           <p className="font-semibold">{player.name}</p><p className="text-xs">{player.id} · {player.alive ? "Alive" : "Dead"}</p>
           <SeatLabel model={player.model} persona={player.persona} />
@@ -196,7 +196,7 @@ function GameRecordView({ record, archived }: { record: GameRecord; archived: bo
         </p>
       </div>
       {record.status === "aborted" && <p role="alert" className="rounded-lg border border-amber-400 p-4">{abortMessage(record.abortReason)} No winner was declared.</p>}
-      <ul className="grid grid-cols-5 gap-2" aria-label="Players">
+      <ul className="grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Players">
         {record.players.map(player => <li key={player.seat} className={`rounded-lg border border-gray-300 p-3 text-center dark:border-gray-700 ${!player.survived ? "opacity-60" : ""}`}>
           <p className="font-semibold">{player.name}</p><p className="text-xs">{player.seat} · {player.survived ? "Survived" : "Dead"}</p>
           <SeatLabel model={player.model} persona={player.persona === null ? null : personaById(player.persona)?.name ?? player.persona} />

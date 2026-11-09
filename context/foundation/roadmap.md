@@ -3,7 +3,7 @@ project: Agent Werewolves
 version: 1
 status: draft
 created: 2026-10-18
-updated: 2026-11-03
+updated: 2026-11-09
 prd_version: 1
 main_goal: learn
 top_blocker: time
@@ -166,6 +166,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Parallel with:** S-03, S-04, S-06
 - **Blockers:** —
 - **Unknowns:** —
+- **Progress (2026-11-09):** the fixed table is already 8 seats (2 Werewolves, 1 Seer, 5 Villagers via `rolesFor`, which applies the composition rule to any count), and wolves vote on the night kill. Pulled forward during S-06 at the operator's request. Choosing the seat count and the three new roles remain.
 - **Risk:** Three new night abilities with edge cases (Witch's single-use potions, the Hunter not shooting when poisoned, the Guard's no-repeat rule) can each break game termination. They are split from S-02 so the north star stays thin.
 - **Status:** proposed
 

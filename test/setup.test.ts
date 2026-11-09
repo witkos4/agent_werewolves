@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { MODELS, PERSONAS } from "../workers/game/catalog";
-import { canonicalSetup, DEFAULT_SETUP, parseSetup, resolveSeats, type GameSetup } from "../workers/game/setup";
+import { canonicalSetup, DEFAULT_SETUP, parseSetup, resolveSeats, SEAT_COUNT, type GameSetup } from "../workers/game/setup";
 
 const ids = MODELS.map(m => m.id);
-const seats = (model: string, persona = "random") => Array.from({ length: 5 }, () => ({ model, persona }));
+const seats = (model: string, persona = "random") => Array.from({ length: SEAT_COUNT }, () => ({ model, persona }));
 
 describe("table setup", () => {
   it("defaults every seat to a random model from the whole catalog and a random personality", () => {
     expect(parseSetup(undefined)).toEqual(DEFAULT_SETUP);
     expect(DEFAULT_SETUP.pool).toEqual(ids);
-    expect(DEFAULT_SETUP.seats).toHaveLength(5);
+    expect(SEAT_COUNT).toBe(8);
+    expect(DEFAULT_SETUP.seats).toHaveLength(8);
   });
 
   it("normalizes the pool to catalog order without duplicates", () => {
@@ -19,7 +20,8 @@ describe("table setup", () => {
   it.each([
     ["not an object", []],
     ["extra key", { seats: seats(ids[0]), pool: [], extra: 1 }],
-    ["four seats", { seats: seats(ids[0]).slice(1), pool: [] }],
+    ["seven seats", { seats: seats(ids[0]).slice(1), pool: [] }],
+    ["nine seats", { seats: [...seats(ids[0]), seats(ids[0])[0]], pool: [] }],
     ["unknown model", { seats: seats("vendor/unknown"), pool: [] }],
     ["unknown pool model", { seats: seats(ids[0], "analyst").map((s, i) => ({ ...s, persona: PERSONAS[i].id })), pool: ["vendor/unknown"] }],
     ["unknown personality", { seats: seats(ids[0], "nobody"), pool: [] }],
@@ -40,11 +42,16 @@ describe("table setup", () => {
       pool: [ids[0], ids[1]],
     };
     const resolved = resolveSeats(setup, () => 0);
-    expect(resolved.map(s => s.model)).toEqual([ids[2], ids[0], ids[0], ids[0], ids[0]]);
+    expect(resolved.map(s => s.model)).toEqual([ids[2], ...Array(SEAT_COUNT - 1).fill(ids[0])]);
     const personas = resolved.map(s => s.persona);
     expect(personas[0]).toBe("analyst");
-    expect(new Set(personas).size).toBe(5);
+    expect(new Set(personas).size).toBe(SEAT_COUNT);
     expect(resolveSeats(setup, () => 0)).toEqual(resolved);
+  });
+
+  it("has enough personalities for a fully random table", () => {
+    expect(PERSONAS.length).toBeGreaterThanOrEqual(SEAT_COUNT);
+    expect(new Set(PERSONAS.map(p => p.id)).size).toBe(PERSONAS.length);
   });
 
   it("compares requested setups, not resolved draws", () => {

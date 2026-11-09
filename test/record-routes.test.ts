@@ -114,12 +114,14 @@ describe("home recent games", () => {
       return homeAction({ request, context, params: {}, url: new URL(request.url), pattern: "/" } as never);
     };
     const id = crypto.randomUUID();
-    const seats: [string, string][] = MODELS.slice(0, 5).flatMap((m, i) => [["seatModel", i === 4 ? "random" : m.id], ["seatPersona", i === 0 ? "analyst" : "random"]] as [string, string][]);
+    // Seats 1–7 cycle through the first five models; seat 8 draws from the pool.
+    const chosen = Array.from({ length: 7 }, (_, i) => MODELS[i % 5].id);
+    const seats: [string, string][] = [...chosen, "random"].flatMap((model, i) => [["seatModel", model], ["seatPersona", i === 0 ? "analyst" : "random"]] as [string, string][]);
     const redirect = await post([["requestId", id], ["discussionPasses", "2"], ...seats, ["pool", MODELS[5].id]]).catch(r => r as Response);
     expect((redirect as Response).headers.get("Location")).toBe(`/games/${id}`);
     const game = await runInDurableObject(liveRoom(env, id), (_i, st) => JSON.parse(st.storage.sql.exec<{ state: string }>("SELECT state FROM live_game").one().state) as Game);
     expect(game.discussionPasses).toBe(2);
-    expect(game.players.map(p => p.model)).toEqual([...MODELS.slice(0, 4).map(m => m.id), MODELS[5].id]);
+    expect(game.players.map(p => p.model)).toEqual([...chosen, MODELS[5].id]);
     expect(game.players[0].persona).toBe("analyst");
 
     const bad = await post([["requestId", crypto.randomUUID()], ["discussionPasses", "1"], ...seats]) as unknown as { data: { error: string; setup: { pool: string[] } }; init: { status: number } };
@@ -129,7 +131,7 @@ describe("home recent games", () => {
   });
 
   it("shows each seat's model and personality while live and in the record, without personality prompts", async () => {
-    const setup = { seats: MODELS.slice(0, 5).map((m, i) => ({ model: m.id, persona: PERSONAS[i].id })), pool: [] };
+    const setup = { seats: PERSONAS.slice(0, 8).map((p, i) => ({ model: MODELS[i % MODELS.length].id, persona: p.id })), pool: [] };
     const { room, id } = await startLiveGame(setup);
     const live = await gamePage(id);
     expect(live.kind).toBe("live");

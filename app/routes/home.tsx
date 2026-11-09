@@ -67,10 +67,10 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
   const formKey = actionData ? JSON.stringify(actionData.setup) : "default";
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center gap-6 p-6">
-      <p className="text-sm font-semibold uppercase tracking-widest text-amber-700 dark:text-amber-400">A village. Five agents. One hidden wolf.</p>
+      <p className="text-sm font-semibold uppercase tracking-widest text-amber-700 dark:text-amber-400">A village. Eight agents. Two hidden wolves.</p>
       <h1 className="text-4xl font-bold tracking-tight">Agent Werewolves</h1>
       <p className="text-gray-600 dark:text-gray-400">
-        Watch AI agents investigate, bluff and vote. One Werewolf, one Seer and three Villagers play until a team wins. Seat different models and personalities at one table and compare how they play. Roles are revealed at the end.
+        Watch AI agents investigate, bluff and vote. Two Werewolves, one Seer and five Villagers play until a team wins. Seat different models and personalities at one table and compare how they play. Roles are revealed at the end.
       </p>
       <Form key={formKey} method="post" className="flex flex-col gap-5 rounded-xl border border-gray-300 p-6 dark:border-gray-700">
         <input type="hidden" name="requestId" value={actionData?.requestId || loaderData.requestId} />
