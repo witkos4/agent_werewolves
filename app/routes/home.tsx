@@ -110,7 +110,10 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
         {actionData?.error && <p role="alert" className="text-red-600 dark:text-red-400">{actionData.error}</p>}
       </Form>
       <section aria-label="Recent games">
-        <h2 className="mb-3 text-lg font-semibold">Recent games</h2>
+        <div className="mb-3 flex items-baseline justify-between">
+          <h2 className="text-lg font-semibold">Recent games</h2>
+          <Link to="/metrics" className="text-sm font-semibold hover:underline">Metrics →</Link>
+        </div>
         {loaderData.recent === null ? <p className="text-sm text-gray-600 dark:text-gray-400">Archive unavailable.</p>
           : loaderData.recent.length === 0 ? <p className="text-sm text-gray-600 dark:text-gray-400">No archived games yet.</p>
           : <ol className="flex flex-col divide-y divide-gray-200 rounded-xl border border-gray-300 dark:divide-gray-800 dark:border-gray-700">
