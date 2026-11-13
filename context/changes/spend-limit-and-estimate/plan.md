@@ -238,10 +238,10 @@ The estimate inputs are two GROUP BY queries over `games` and `game_moves ⋈ ga
 
 #### Automated
 
-- [ ] 2.1 Archive spend tests pass
-- [ ] 2.2 Record and page tests pass
-- [ ] 2.3 Local migration applies
-- [ ] 2.4 Typecheck passes
+- [x] 2.1 Archive spend tests pass — 009f2b9
+- [x] 2.2 Record and page tests pass — 009f2b9
+- [x] 2.3 Local migration applies — 009f2b9
+- [x] 2.4 Typecheck passes — 009f2b9
 
 ### Phase 3: Estimate on the start form
 
