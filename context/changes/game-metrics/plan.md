@@ -207,11 +207,11 @@ A fixed number of aggregate queries in one batch, using the `game_players (model
 
 #### Automated
 
-- [ ] 1.1 Engine death tests pass
-- [ ] 1.2 Archive death and backfill tests pass
-- [ ] 1.3 Record tests stay green
-- [ ] 1.4 Local migration applies
-- [ ] 1.5 Typecheck passes
+- [x] 1.1 Engine death tests pass — b8acb61
+- [x] 1.2 Archive death and backfill tests pass — b8acb61
+- [x] 1.3 Record tests stay green — b8acb61
+- [x] 1.4 Local migration applies — b8acb61
+- [x] 1.5 Typecheck passes — b8acb61
 
 ### Phase 2: Metrics queries and aggregation
 

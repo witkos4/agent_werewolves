@@ -1,7 +1,7 @@
 ---
 change_id: game-metrics
 title: See win rate, vote accuracy, deception success, cost and latency per model and role, each with its game count
-status: planning
+status: implementing
 created: 2026-11-14
 updated: 2026-11-14
 archived_at: null
