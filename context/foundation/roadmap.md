@@ -3,7 +3,7 @@ project: Agent Werewolves
 version: 1
 status: draft
 created: 2026-10-18
-updated: 2026-11-09
+updated: 2026-11-14
 prd_version: 1
 main_goal: learn
 top_blocker: time
@@ -46,7 +46,7 @@ The operator wants hands-on learning of agentic workflows across the whole build
 | S-03 | game-record-with-reasoning | operator reopens a finished game and reads the public transcript with each agent's private rationale beside it | S-02 | US-01, FR-009 | done |
 | S-04 | spectator-role-visibility | spectator toggles between hidden and shown roles while watching | S-02 | US-01, FR-008 | proposed |
 | S-05 | custom-table-composition | operator sets 5–9 seats and the role mix (by hand or randomized within the balance rule), with Witch, Hunter and Guard playable | S-02 | US-01, FR-002, FR-005 | proposed |
-| S-06 | mixed-model-seats-and-personas | operator seats different models and personalities at one table, by hand or drawn from a pool | S-02 | US-01, FR-003, FR-004 | in-progress |
+| S-06 | mixed-model-seats-and-personas | operator seats different models and personalities at one table, by hand or drawn from a pool | S-02 | US-01, FR-003, FR-004 | done |
 | S-07 | spend-limit-and-estimate | operator sees an estimated cost, sets a spend limit, and over-budget games end and are archived as aborted | S-03 | US-01, FR-014 | proposed |
 | S-08 | game-metrics | operator sees win rate, vote accuracy, deception success, cost and latency per model and role, each with its game count | S-03, S-06 | US-01, FR-011 | proposed |
 | S-09 | headless-batch-runs | operator runs a spend-capped batch of 10–20 headless games with model rotation and reviews aggregated results | S-07, S-08 | US-02, FR-016, FR-003, FR-014 | proposed |
@@ -181,7 +181,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Unknowns:**
   - ~~Who writes the preset personality roster, and how many personalities v1 needs.~~ Resolved 2026-11-08: Claude drafted eight in `workers/game/catalog.ts`, for the operator to edit. The catalog is six models from six labs, all under the existing rate ceilings.
 - **Risk:** Under the `learn` goal this is the core comparison the product exists for. Provider-specific quirks (rate limits, how each model exposes reasoning) surface here, not earlier.
-- **Status:** in-progress
+- **Status:** done
 
 ### S-07: Spend limit and cost estimate
 
@@ -258,11 +258,11 @@ Foundations below assume these are present and do NOT re-scaffold them.
 | S-03 | game-record-with-reasoning | Game record: transcript with per-agent private rationale | no | Done; archived in `context/archive/2026-11-02-game-record-with-reasoning/` |
 | S-04 | spectator-role-visibility | Spectator toggle for hidden/shown roles | yes | Unblocked by S-02 |
 | S-05 | custom-table-composition | Configurable seats and roles incl. Witch, Hunter, Guard | yes | Unblocked by S-02 |
-| S-06 | mixed-model-seats-and-personas | Per-seat models and personalities (manual or pooled) | yes | In progress: `context/changes/mixed-model-seats-and-personas/` |
+| S-06 | mixed-model-seats-and-personas | Per-seat models and personalities (manual or pooled) | no | Done; archived in `context/archive/2026-11-08-mixed-model-seats-and-personas/` |
 | S-07 | spend-limit-and-estimate | Pre-game cost estimate, spend limit, budget abort | yes | Unblocked by S-03; retry-cache proof still blocks "spend never overshoots" |
-| S-08 | game-metrics | Per-model/role metrics with sample sizes | no | Needs S-03, S-06 |
+| S-08 | game-metrics | Per-model/role metrics with sample sizes | yes | Unblocked by S-03, S-06 |
 | S-09 | headless-batch-runs | Spend-capped headless batches with model rotation | no | Needs S-07, S-08 |
-| S-10 | archive-browse-and-filter | Browse and filter the game archive | no | Needs S-03, S-06 |
+| S-10 | archive-browse-and-filter | Browse and filter the game archive | yes | Unblocked by S-03, S-06 |
 | S-11 | verifiable-archive | Integrity-verifiable archive incl. crashed games | yes | Unblocked by S-03 |
 
 ## Open Roadmap Questions
@@ -291,3 +291,4 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **S-01: user can reach the app only after entering the access key, and the operator can rotate the key so the old one stops working immediately.** — Archived 2026-10-29 → `context/archive/2026-10-22-access-key-gate/`. Lesson: hibernated WebSockets outlive a key rotation (a running room can stay on the old version), so long-lived sockets need their own key fingerprint and age cap.
 - **S-02: user can start a fixed-setup all-AI game (Werewolves, Villagers and a Seer) and watch the night and day phases live until one side wins. Roles are revealed at the end.** — Archived 2026-10-29 → `context/archive/2026-10-29-first-live-ai-game/`. Lesson: a busy room keeps its version across redeploys, so production never exercised a mid-game restart; and five seats with one wolf give the village a single vote before parity (wolves won 3/3), so games are too short to measure much until S-05/S-06.
 - **S-03: user can reopen a finished game and read the full public transcript, with each agent's private rationale beside its public statements, in the same form for every model.** — Archived 2026-11-03 → `context/archive/2026-11-02-game-record-with-reasoning/`. Lesson: the first D1 deploy failed on Cloudflare access, not code. The CI token lacked D1, and any dashboard edit (even a secret) flips the Worker to dashboard-deployed, which breaks `wrangler deploy` for a zone-less account. Set secrets with `wrangler secret put` and verify a token against every API it needs before relying on CI.
+- **S-06: user can assign a model and a personality to each seat, by hand or drawn at random from an operator-picked pool or roster, and different models then play at one table.** — Archived 2026-11-14 → `context/archive/2026-11-08-mixed-model-seats-and-personas/`. Lesson: one smoke sample per phase hid a model's malformed JSON (Claude Haiku on the Seer's investigation); strict per-phase JSON schemas plus a multi-sample, all-phase smoke caught and fixed it. The 8-seat table and pack kill votes (PR #22) shipped after the drill and have not been drilled in production.
