@@ -3,7 +3,8 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GameRoom } from "../workers/game-room";
 import { listRecentGames, readArchivedRecord, writeArchive } from "../workers/game/archive";
-import type { Game } from "../workers/game/engine";
+import { createGame, type Game } from "../workers/game/engine";
+import { buildRecord } from "../workers/game/record";
 import { MODELS } from "../workers/game/catalog";
 import { DEFAULT_SETUP } from "../workers/game/setup";
 import { archiveTuning, liveTuning } from "../workers/game/runtime";
@@ -98,6 +99,38 @@ describe("archive outbox", () => {
     const record = await readArchivedRecord(env.ARCHIVE, id);
     expect(record).toMatchObject({ status: "aborted", abortReason: "invalid_model_response", winner: null, turns: 0 });
     expect(record!.players.every(p => p.role)).toBe(true);
+  });
+
+  it("archives a budget-aborted game with its limit and ledger", async () => {
+    const { room, id } = await start(undefined, 0.05);
+    await runInDurableObject(room, (_i, s) => { s.storage.sql.exec("UPDATE live_game SET charged_usd = 0.049"); });
+    await runDurableObjectAlarm(room); // The first attempt would pass the limit.
+    await runDurableObjectAlarm(room); // Archive.
+    const record = await readArchivedRecord(env.ARCHIVE, id);
+    expect(record).toMatchObject({ status: "aborted", abortReason: "spend_limit", spendLimitUsd: 0.05, chargedUsd: 0.049, turns: 0 });
+    expect(record).toEqual((await room.getRecord())!.record);
+    const row = await env.ARCHIVE.prepare("SELECT abort_reason, spend_limit_usd, charged_usd FROM games WHERE id = ?").bind(id).first();
+    expect(row).toEqual({ abort_reason: "spend_limit", spend_limit_usd: 0.05, charged_usd: 0.049 });
+  });
+
+  it("archives a finished game's settled ledger, equal to its known cost", async () => {
+    const { room, id } = await start();
+    await playToFinish(room);
+    await runDurableObjectAlarm(room);
+    const row = await env.ARCHIVE.prepare("SELECT spend_limit_usd, charged_usd, total_cost_usd, reserved_usd FROM games WHERE id = ?").bind(id)
+      .first<{ spend_limit_usd: number; charged_usd: number; total_cost_usd: number; reserved_usd: number }>();
+    expect(row!.spend_limit_usd).toBe(1);
+    expect(row!.charged_usd).toBeCloseTo(row!.total_cost_usd, 10);
+    expect(row!.reserved_usd).toBeGreaterThan(row!.charged_usd);
+  });
+
+  it("reads a game from before the spend limit with null limit and ledger", async () => {
+    const game = { ...createGame(crypto.randomUUID(), 1, 100), status: "aborted" as const, abortReason: "time_limit" };
+    delete game.spendLimitUsd;
+    const record = buildRecord(game, [], { endedAt: 200, reservedUsd: 0.2, chargedUsd: 0.2 });
+    expect(record).toMatchObject({ spendLimitUsd: null, chargedUsd: null });
+    await writeArchive(env.ARCHIVE, record, JSON.stringify(game), 300);
+    expect(await readArchivedRecord(env.ARCHIVE, game.id)).toMatchObject({ spendLimitUsd: null, chargedUsd: null, reservedUsd: 0.2 });
   });
 
   it("retries a failed D1 write with backoff and keeps the game until it lands", async () => {

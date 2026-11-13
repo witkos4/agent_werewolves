@@ -57,6 +57,15 @@ describe("game record page", () => {
     expect(await gamePage(id)).toMatchObject({ kind: "record", archived: false, record: { status: "aborted", abortReason: "invalid_model_response" } });
   });
 
+  it("gives the page a budget abort's limit and ledger, live and as a record", async () => {
+    const { room, id } = await startLiveGame(undefined, 0.25);
+    const live = await gamePage(id);
+    expect(live).toMatchObject({ kind: "live", snapshot: { game: { spendLimitUsd: 0.25 } } });
+    await runInDurableObject(room, (_i, s) => { s.storage.sql.exec("UPDATE live_game SET charged_usd = 0.249"); });
+    await runDurableObjectAlarm(room);
+    expect(await gamePage(id)).toMatchObject({ kind: "record", record: { abortReason: "spend_limit", spendLimitUsd: 0.25, chargedUsd: 0.249 } });
+  });
+
   it("falls back to the room when the archive read fails", async () => {
     const { room, id } = await startLiveGame();
     await playToFinish(room, "fallback-rationale");

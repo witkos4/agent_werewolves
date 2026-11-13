@@ -180,8 +180,8 @@ export class LiveGame {
       "SELECT turn_no, cost, latency_ms, attempts, generation_id FROM live_turns WHERE status = 'done' ORDER BY turn_no",
     ).toArray().map(t => ({ turnNo: t.turn_no, costUsd: t.cost, latencyMs: t.latency_ms, attempts: t.attempts, generationId: t.generation_id }));
     const ended = sql.exec<{ created_at: number }>("SELECT created_at FROM events WHERE type IN ('finished', 'aborted') ORDER BY seq DESC LIMIT 1").toArray()[0];
-    const reservedUsd = sql.exec<{ reserved_usd: number }>("SELECT reserved_usd FROM live_game").one().reserved_usd;
-    return buildRecord(game, turns, { endedAt: ended?.created_at ?? game.createdAt, reservedUsd });
+    const ledger = sql.exec<{ reserved_usd: number; charged_usd: number }>("SELECT reserved_usd, charged_usd FROM live_game").one();
+    return buildRecord(game, turns, { endedAt: ended?.created_at ?? game.createdAt, reservedUsd: ledger.reserved_usd, chargedUsd: ledger.charged_usd });
   }
 
   /** Writes the record to D1; on failure retries on the alarm with backoff, indefinitely. */
