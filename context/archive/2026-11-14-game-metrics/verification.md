@@ -1,6 +1,6 @@
 # Game Metrics — Verification
 
-Date: 2026-11-14. Status: phases 1–3 verified locally; Phase 4 (production) pending the merge.
+Date: 2026-11-14. Status: phases 1–3 verified locally; Phase 4 verified in production by the operator on 2026-11-14.
 
 ## Automated (phases 1–3)
 
@@ -29,4 +29,9 @@ What the seeded run showed about reading the page:
 
 ## Production (Phase 4)
 
-Pending: CI applying 0003, remote backfill check, an 8-seat drill game, and a hand count on `/metrics?seats=8`.
+Run by the operator after PR #23 merged; all four checks passed.
+
+- 4.1 CI run 43526163194 on `main` applied migration 0003 and deployed; `/healthz` passed.
+- 4.2 Remote D1: no `game_players` row with `survived = 0` lacks `died_day` or `died_by`.
+- 4.3 An 8-seat production game played to the end and archived with its deaths recorded. This is also the first production drill of PR #22's 8-seat table and pack kill votes.
+- 4.4 `/metrics?seats=8` matched a hand count from `wrangler d1 execute --remote` rows.

@@ -48,7 +48,7 @@ The operator wants hands-on learning of agentic workflows across the whole build
 | S-05 | custom-table-composition | operator sets 5–9 seats and the role mix (by hand or randomized within the balance rule), with Witch, Hunter and Guard playable | S-02 | US-01, FR-002, FR-005 | proposed |
 | S-06 | mixed-model-seats-and-personas | operator seats different models and personalities at one table, by hand or drawn from a pool | S-02 | US-01, FR-003, FR-004 | done |
 | S-07 | spend-limit-and-estimate | operator sees an estimated cost, sets a spend limit, and over-budget games end and are archived as aborted | S-03 | US-01, FR-014 | proposed |
-| S-08 | game-metrics | operator sees win rate, vote accuracy, deception success, cost and latency per model and role, each with its game count | S-03, S-06 | US-01, FR-011 | in-progress |
+| S-08 | game-metrics | operator sees win rate, vote accuracy, deception success, cost and latency per model and role, each with its game count | S-03, S-06 | US-01, FR-011 | done |
 | S-09 | headless-batch-runs | operator runs a spend-capped batch of 10–20 headless games with model rotation and reviews aggregated results | S-07, S-08 | US-02, FR-016, FR-003, FR-014 | proposed |
 | S-10 | archive-browse-and-filter | operator browses past games filtered by model, role, outcome, date and batch | S-03, S-06 | US-02, FR-013 | proposed |
 | S-11 | verifiable-archive | operator verifies an archived game's integrity, and crashed games land in the archive too | S-03 | US-01, FR-012 | proposed |
@@ -207,7 +207,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Blockers:** —
 - **Unknowns:** —
 - **Risk:** The definitions are pinned in the PRD, so the risk is fidelity, not design. Metrics computed from records that lack a needed field force a backfill, so check S-03's record covers every input first.
-- **Status:** in-progress
+- **Status:** done
 
 ### S-09: Headless batch runs
 
@@ -260,8 +260,8 @@ Foundations below assume these are present and do NOT re-scaffold them.
 | S-05 | custom-table-composition | Configurable seats and roles incl. Witch, Hunter, Guard | yes | Unblocked by S-02 |
 | S-06 | mixed-model-seats-and-personas | Per-seat models and personalities (manual or pooled) | no | Done; archived in `context/archive/2026-11-08-mixed-model-seats-and-personas/` |
 | S-07 | spend-limit-and-estimate | Pre-game cost estimate, spend limit, budget abort | yes | Unblocked by S-03; retry-cache proof still blocks "spend never overshoots" |
-| S-08 | game-metrics | Per-model/role metrics with sample sizes | yes | In progress: `context/changes/game-metrics/` |
-| S-09 | headless-batch-runs | Spend-capped headless batches with model rotation | no | Needs S-07, S-08 |
+| S-08 | game-metrics | Per-model/role metrics with sample sizes | no | Done; archived in `context/archive/2026-11-14-game-metrics/` |
+| S-09 | headless-batch-runs | Spend-capped headless batches with model rotation | no | Needs S-07 (S-08 done) |
 | S-10 | archive-browse-and-filter | Browse and filter the game archive | yes | Unblocked by S-03, S-06 |
 | S-11 | verifiable-archive | Integrity-verifiable archive incl. crashed games | yes | Unblocked by S-03 |
 
@@ -292,3 +292,4 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **S-02: user can start a fixed-setup all-AI game (Werewolves, Villagers and a Seer) and watch the night and day phases live until one side wins. Roles are revealed at the end.** — Archived 2026-10-29 → `context/archive/2026-10-29-first-live-ai-game/`. Lesson: a busy room keeps its version across redeploys, so production never exercised a mid-game restart; and five seats with one wolf give the village a single vote before parity (wolves won 3/3), so games are too short to measure much until S-05/S-06.
 - **S-03: user can reopen a finished game and read the full public transcript, with each agent's private rationale beside its public statements, in the same form for every model.** — Archived 2026-11-03 → `context/archive/2026-11-02-game-record-with-reasoning/`. Lesson: the first D1 deploy failed on Cloudflare access, not code. The CI token lacked D1, and any dashboard edit (even a secret) flips the Worker to dashboard-deployed, which breaks `wrangler deploy` for a zone-less account. Set secrets with `wrangler secret put` and verify a token against every API it needs before relying on CI.
 - **S-06: user can assign a model and a personality to each seat, by hand or drawn at random from an operator-picked pool or roster, and different models then play at one table.** — Archived 2026-11-14 → `context/archive/2026-11-08-mixed-model-seats-and-personas/`. Lesson: one smoke sample per phase hid a model's malformed JSON (Claude Haiku on the Seer's investigation); strict per-phase JSON schemas plus a multi-sample, all-phase smoke caught and fixed it. The 8-seat table and pack kill votes (PR #22) shipped after the drill and have not been drilled in production.
+- **S-08: user can see win rate per model and role, vote accuracy (per vote and per elimination), deception success (wolf survival, misdirected votes, suspicion dodged), and cost and latency, each with the number of games behind it.** — Archived 2026-11-14 → `context/archive/2026-11-14-game-metrics/`. Lesson: deaths lived only in transcript text, so the metrics needed a normalized `died_day`/`died_by` plus a pure-SQL backfill tied to the engine wording by a test. Some figures coincide by construction (votes drawn by innocents = votes misdirected), which reads like a bug unless the definitions say why. The production drill also covered PR #22's 8-seat table.

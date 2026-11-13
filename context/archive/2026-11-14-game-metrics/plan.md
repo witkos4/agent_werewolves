@@ -236,10 +236,10 @@ A fixed number of aggregate queries in one batch, using the `game_players (model
 
 #### Automated
 
-- [ ] 4.1 CI applies migration 0003 and deploys; healthz passes
-- [ ] 4.2 Remote D1 deaths are filled for every dead seat
+- [x] 4.1 CI applies migration 0003 and deploys; healthz passes — operator, 2026-11-14
+- [x] 4.2 Remote D1 deaths are filled for every dead seat — operator, 2026-11-14
 
 #### Manual
 
-- [ ] 4.3 An 8-seat production game plays to the end
-- [ ] 4.4 Metrics page matches a hand count
+- [x] 4.3 An 8-seat production game plays to the end — operator, 2026-11-14
+- [x] 4.4 Metrics page matches a hand count — operator, 2026-11-14
