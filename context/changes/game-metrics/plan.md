@@ -225,12 +225,12 @@ A fixed number of aggregate queries in one batch, using the `game_players (model
 
 #### Automated
 
-- [ ] 3.1 Route tests pass
-- [ ] 3.2 Typecheck and build pass
+- [x] 3.1 Route tests pass — 09057a2
+- [x] 3.2 Typecheck and build pass — 09057a2
 
 #### Manual
 
-- [ ] 3.3 Dev page matches a hand count
+- [x] 3.3 Dev page matches a hand count — 09057a2
 
 ### Phase 4: Production rollout and check
 
