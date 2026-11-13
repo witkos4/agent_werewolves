@@ -228,11 +228,11 @@ The estimate inputs are two GROUP BY queries over `games` and `game_moves ⋈ ga
 
 #### Automated
 
-- [ ] 1.1 Ledger and limit tests pass
-- [ ] 1.2 Idempotency with the limit passes
-- [ ] 1.3 Limit validation at the HTTP boundary passes
-- [ ] 1.4 Pre-change room keeps playing
-- [ ] 1.5 Typecheck passes
+- [x] 1.1 Ledger and limit tests pass — f812349
+- [x] 1.2 Idempotency with the limit passes — f812349
+- [x] 1.3 Limit validation at the HTTP boundary passes — f812349
+- [x] 1.4 Pre-change room keeps playing — f812349
+- [x] 1.5 Typecheck passes — f812349
 
 ### Phase 2: Archive and record
 
