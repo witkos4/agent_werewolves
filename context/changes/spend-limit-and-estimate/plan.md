@@ -247,14 +247,14 @@ The estimate inputs are two GROUP BY queries over `games` and `game_moves ⋈ ga
 
 #### Automated
 
-- [ ] 3.1 Pure estimate tests pass
-- [ ] 3.2 D1 estimate input test passes
-- [ ] 3.3 Home route tests pass
-- [ ] 3.4 Typecheck and build pass
+- [x] 3.1 Pure estimate tests pass — 99d4660
+- [x] 3.2 D1 estimate input test passes — 99d4660
+- [x] 3.3 Home route tests pass — 99d4660
+- [x] 3.4 Typecheck and build pass — 99d4660
 
 #### Manual
 
-- [ ] 3.5 Dev form estimate and a budget abort work
+- [ ] 3.5 Dev form estimate and a budget abort work (server-rendered estimate and warning checked 99d4660; live recompute in a browser and a dev budget abort not yet run)
 
 ### Phase 4: Production rollout and check
 
