@@ -47,7 +47,7 @@ The operator wants hands-on learning of agentic workflows across the whole build
 | S-04 | spectator-role-visibility | spectator toggles between hidden and shown roles while watching | S-02 | US-01, FR-008 | proposed |
 | S-05 | custom-table-composition | operator sets 5–9 seats and the role mix (by hand or randomized within the balance rule), with Witch, Hunter and Guard playable | S-02 | US-01, FR-002, FR-005 | proposed |
 | S-06 | mixed-model-seats-and-personas | operator seats different models and personalities at one table, by hand or drawn from a pool | S-02 | US-01, FR-003, FR-004 | done |
-| S-07 | spend-limit-and-estimate | operator sees an estimated cost, sets a spend limit, and over-budget games end and are archived as aborted | S-03 | US-01, FR-014 | proposed |
+| S-07 | spend-limit-and-estimate | operator sees an estimated cost, sets a spend limit, and over-budget games end and are archived as aborted | S-03 | US-01, FR-014 | in-progress |
 | S-08 | game-metrics | operator sees win rate, vote accuracy, deception success, cost and latency per model and role, each with its game count | S-03, S-06 | US-01, FR-011 | done |
 | S-09 | headless-batch-runs | operator runs a spend-capped batch of 10–20 headless games with model rotation and reviews aggregated results | S-07, S-08 | US-02, FR-016, FR-003, FR-014 | proposed |
 | S-10 | archive-browse-and-filter | operator browses past games filtered by model, role, outcome, date and batch | S-03, S-06 | US-02, FR-013 | proposed |
@@ -195,7 +195,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
   - Where per-model pricing for the estimate comes from (provider price list vs. a maintained table). Owner: user. Block: no.
   - Whether a turn retried from inside `GameRoom` gets a free OpenRouter cache HIT in production. F-02 could not prove it: a laptop resend misses entries the Worker wrote, likely because the cache is per edge location (`context/archive/2026-10-19-game-room-turn-loop-spike/spike-findings.md`, 4.7). Prove it with an in-DO resend drill before relying on "spend never overshoots". Owner: user. Block: yes.
 - **Risk:** Must land before batches (S-09) multiply spend. Overshoot is allowed by at most one agent turn, so the check has to run before every LLM call, not after.
-- **Status:** proposed
+- **Status:** in-progress
 
 ### S-08: Game metrics
 
@@ -259,7 +259,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 | S-04 | spectator-role-visibility | Spectator toggle for hidden/shown roles | yes | Unblocked by S-02 |
 | S-05 | custom-table-composition | Configurable seats and roles incl. Witch, Hunter, Guard | yes | Unblocked by S-02 |
 | S-06 | mixed-model-seats-and-personas | Per-seat models and personalities (manual or pooled) | no | Done; archived in `context/archive/2026-11-08-mixed-model-seats-and-personas/` |
-| S-07 | spend-limit-and-estimate | Pre-game cost estimate, spend limit, budget abort | yes | Unblocked by S-03; retry-cache proof still blocks "spend never overshoots" |
+| S-07 | spend-limit-and-estimate | Pre-game cost estimate, spend limit, budget abort | yes | In progress: `context/changes/spend-limit-and-estimate/`; plan proposes a settling ledger that removes the retry-cache blocker |
 | S-08 | game-metrics | Per-model/role metrics with sample sizes | no | Done; archived in `context/archive/2026-11-14-game-metrics/` |
 | S-09 | headless-batch-runs | Spend-capped headless batches with model rotation | no | Needs S-07 (S-08 done) |
 | S-10 | archive-browse-and-filter | Browse and filter the game archive | yes | Unblocked by S-03, S-06 |
