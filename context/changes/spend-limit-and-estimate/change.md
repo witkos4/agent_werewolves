@@ -1,7 +1,7 @@
 ---
 change_id: spend-limit-and-estimate
 title: See a game's estimated cost before starting, set a spend limit, and have an over-budget game end and be archived as aborted
-status: planning
+status: implementing
 created: 2026-11-14
 updated: 2026-11-14
 archived_at: null
