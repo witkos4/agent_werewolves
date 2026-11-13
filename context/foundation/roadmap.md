@@ -48,7 +48,7 @@ The operator wants hands-on learning of agentic workflows across the whole build
 | S-05 | custom-table-composition | operator sets 5–9 seats and the role mix (by hand or randomized within the balance rule), with Witch, Hunter and Guard playable | S-02 | US-01, FR-002, FR-005 | proposed |
 | S-06 | mixed-model-seats-and-personas | operator seats different models and personalities at one table, by hand or drawn from a pool | S-02 | US-01, FR-003, FR-004 | done |
 | S-07 | spend-limit-and-estimate | operator sees an estimated cost, sets a spend limit, and over-budget games end and are archived as aborted | S-03 | US-01, FR-014 | proposed |
-| S-08 | game-metrics | operator sees win rate, vote accuracy, deception success, cost and latency per model and role, each with its game count | S-03, S-06 | US-01, FR-011 | proposed |
+| S-08 | game-metrics | operator sees win rate, vote accuracy, deception success, cost and latency per model and role, each with its game count | S-03, S-06 | US-01, FR-011 | in-progress |
 | S-09 | headless-batch-runs | operator runs a spend-capped batch of 10–20 headless games with model rotation and reviews aggregated results | S-07, S-08 | US-02, FR-016, FR-003, FR-014 | proposed |
 | S-10 | archive-browse-and-filter | operator browses past games filtered by model, role, outcome, date and batch | S-03, S-06 | US-02, FR-013 | proposed |
 | S-11 | verifiable-archive | operator verifies an archived game's integrity, and crashed games land in the archive too | S-03 | US-01, FR-012 | proposed |
@@ -207,7 +207,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Blockers:** —
 - **Unknowns:** —
 - **Risk:** The definitions are pinned in the PRD, so the risk is fidelity, not design. Metrics computed from records that lack a needed field force a backfill, so check S-03's record covers every input first.
-- **Status:** proposed
+- **Status:** in-progress
 
 ### S-09: Headless batch runs
 
@@ -260,7 +260,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 | S-05 | custom-table-composition | Configurable seats and roles incl. Witch, Hunter, Guard | yes | Unblocked by S-02 |
 | S-06 | mixed-model-seats-and-personas | Per-seat models and personalities (manual or pooled) | no | Done; archived in `context/archive/2026-11-08-mixed-model-seats-and-personas/` |
 | S-07 | spend-limit-and-estimate | Pre-game cost estimate, spend limit, budget abort | yes | Unblocked by S-03; retry-cache proof still blocks "spend never overshoots" |
-| S-08 | game-metrics | Per-model/role metrics with sample sizes | yes | Unblocked by S-03, S-06 |
+| S-08 | game-metrics | Per-model/role metrics with sample sizes | yes | In progress: `context/changes/game-metrics/` |
 | S-09 | headless-batch-runs | Spend-capped headless batches with model rotation | no | Needs S-07, S-08 |
 | S-10 | archive-browse-and-filter | Browse and filter the game archive | yes | Unblocked by S-03, S-06 |
 | S-11 | verifiable-archive | Integrity-verifiable archive incl. crashed games | yes | Unblocked by S-03 |
