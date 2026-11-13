@@ -6,4 +6,5 @@ export default [
   route("login", "routes/login.tsx"),
   route("spike/:gameId", "routes/spike.$gameId.tsx"),
   route("games/:gameId", "routes/games.$gameId.tsx"),
+  route("metrics", "routes/metrics.tsx"),
 ] satisfies RouteConfig;
