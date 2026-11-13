@@ -217,9 +217,9 @@ A fixed number of aggregate queries in one batch, using the `game_players (model
 
 #### Automated
 
-- [ ] 2.1 Pure metrics tests pass
-- [ ] 2.2 D1 metrics tests pass
-- [ ] 2.3 Typecheck passes
+- [x] 2.1 Pure metrics tests pass — c043027
+- [x] 2.2 D1 metrics tests pass — c043027
+- [x] 2.3 Typecheck passes — c043027
 
 ### Phase 3: Metrics page
 
