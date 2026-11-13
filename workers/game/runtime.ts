@@ -1,6 +1,6 @@
 import { callLlm, type LlmResult } from "../llm/client";
 import { writeArchive } from "./archive";
-import { applyMove, buildRequest, createGame, INPUT_RATE_CEILING, MAX_OUTPUT_TOKENS, OUTPUT_RATE_CEILING, publicGame, SAFETY_USD, validateMove, type Game, type PublicGame } from "./engine";
+import { applyMove, attemptAllowance, buildRequest, createGame, effectiveLimit, INPUT_RATE_CEILING, OUTPUT_RATE_CEILING, publicGame, randomIndex, SAFETY_USD, validateMove, type Game, type PublicGame } from "./engine";
 import { buildRecord, type GameRecord } from "./record";
 import { canonicalSetup, DEFAULT_SETUP, type GameSetup } from "./setup";
 
@@ -53,18 +53,31 @@ export class LiveGame {
     ctx.storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS live_game (
         singleton INTEGER PRIMARY KEY CHECK (singleton = 1), state TEXT NOT NULL,
-        reserved_usd REAL NOT NULL DEFAULT 0
+        reserved_usd REAL NOT NULL DEFAULT 0, charged_usd REAL NOT NULL DEFAULT 0
       );
       CREATE TABLE IF NOT EXISTS live_turns (
         turn_no INTEGER PRIMARY KEY, body TEXT NOT NULL, status TEXT NOT NULL,
         attempts INTEGER NOT NULL DEFAULT 0, last_attempt_at INTEGER,
-        response_text TEXT, cost REAL, generation_id TEXT, latency_ms INTEGER
+        response_text TEXT, cost REAL, generation_id TEXT, latency_ms INTEGER, allowance_usd REAL
       );
       CREATE TABLE IF NOT EXISTS live_archive (
         singleton INTEGER PRIMARY KEY CHECK (singleton = 1), status TEXT NOT NULL,
         attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, archived_at INTEGER
       );
     `);
+    // Rooms created before S-07: add the ledger columns in place. A mid-game
+    // room starts its ledger at its gross reservations, a safe over-count.
+    if (!this.hasColumn("live_game", "charged_usd")) {
+      ctx.storage.transactionSync(() => {
+        ctx.storage.sql.exec("ALTER TABLE live_game ADD COLUMN charged_usd REAL NOT NULL DEFAULT 0");
+        ctx.storage.sql.exec("UPDATE live_game SET charged_usd = reserved_usd");
+      });
+    }
+    if (!this.hasColumn("live_turns", "allowance_usd")) ctx.storage.sql.exec("ALTER TABLE live_turns ADD COLUMN allowance_usd REAL");
+  }
+
+  private hasColumn(table: string, column: string): boolean {
+    return this.ctx.storage.sql.exec<{ name: string }>(`SELECT name FROM pragma_table_info('${table}')`).toArray().some(c => c.name === column);
   }
 
   read(): Game | null {
@@ -79,18 +92,22 @@ export class LiveGame {
     return { seq, game: publicGame(game) };
   }
 
-  /** `setup` undefined means the default; a version-1 room matches only an omitted setup. */
-  async start(id: string, discussionPasses: number, setup?: GameSetup): Promise<LiveStartResult> {
+  /**
+   * `setup` undefined means the default; a version-1 room matches only an
+   * omitted setup. `spendLimitUsd` undefined means `SAFETY_USD`.
+   */
+  async start(id: string, discussionPasses: number, setup?: GameSetup, spendLimitUsd?: number): Promise<LiveStartResult> {
+    const limit = spendLimitUsd ?? SAFETY_USD;
     return this.ctx.blockConcurrencyWhile(async () => {
       const existing = this.read();
       if (existing) {
         const sameSetup = existing.setup ? canonicalSetup(existing.setup) === canonicalSetup(setup ?? DEFAULT_SETUP) : setup === undefined;
-        return existing.id === id && existing.discussionPasses === discussionPasses && sameSetup
+        return existing.id === id && existing.discussionPasses === discussionPasses && sameSetup && effectiveLimit(existing) === limit
           ? { ok: true } : { ok: false, status: 409, error: "This start request was already used with different settings." };
       }
       if (!this.env.OPENROUTER_API_KEY?.trim()) return { ok: false, status: 503, error: "The game provider is not configured." };
       // Seats are drawn first so that only models the game will call are checked.
-      const game = createGame(id, discussionPasses, Date.now(), setup ?? DEFAULT_SETUP);
+      const game = createGame(id, discussionPasses, Date.now(), setup ?? DEFAULT_SETUP, randomIndex, limit);
       const unsafe = await unsafePricing([...new Set(game.players.map(p => p.model!))]);
       if (unsafe !== null) return { ok: false, status: 503, error: `Cannot verify safe ${unsafe ? `pricing for ${unsafe}` : "model pricing"}. Try again later.` };
       const notify = this.ctx.storage.transactionSync(() => {
@@ -219,14 +236,16 @@ export class LiveGame {
     if (turn.last_attempt_at !== null && now < turn.last_attempt_at + liveTuning.quietMs) {
       return this.schedule(game, turn.last_attempt_at + liveTuning.quietMs);
     }
-    // UTF-8 bytes overbound text tokens, plus a conservative chat-envelope margin.
-    // Keep every reservation, even on cache hits or unknown/failed responses.
-    const allowance = (new TextEncoder().encode(turn.body).length + 2048) * INPUT_RATE_CEILING + MAX_OUTPUT_TOKENS * OUTPUT_RATE_CEILING;
-    const reserved = sql.exec<{ reserved_usd: number }>("SELECT reserved_usd FROM live_game").one().reserved_usd;
-    if (reserved + allowance > SAFETY_USD) return this.abort(game, "safety_budget");
+    // Spend ledger: every attempt is charged its worst case before the call and
+    // settled to its known cost when the turn commits. Failed, lost and
+    // unknown-cost attempts keep the full charge, so the limit holds whether or
+    // not a retry is served free from the provider cache.
+    const allowance = attemptAllowance(turn.body);
+    const charged = sql.exec<{ charged_usd: number }>("SELECT charged_usd FROM live_game").one().charged_usd;
+    if (charged + allowance > effectiveLimit(game)) return this.abort(game, "spend_limit");
     this.ctx.storage.transactionSync(() => {
-      sql.exec("UPDATE live_game SET reserved_usd = reserved_usd + ?", allowance);
-      sql.exec("UPDATE live_turns SET attempts = attempts + 1, last_attempt_at = ? WHERE turn_no = ?", now, game.turn);
+      sql.exec("UPDATE live_game SET reserved_usd = reserved_usd + ?, charged_usd = charged_usd + ?", allowance, allowance);
+      sql.exec("UPDATE live_turns SET attempts = attempts + 1, last_attempt_at = ?, allowance_usd = ? WHERE turn_no = ?", now, allowance, game.turn);
     });
     // Persist a watchdog before yielding to the provider. A lost reply is retried
     // from the stored body after the quiet interval, with another reservation.
@@ -258,6 +277,10 @@ export class LiveGame {
       return this.abort(game, "invalid_model_response");
     }
     const notify = this.ctx.storage.transactionSync(() => {
+      // Settle this attempt; a turn reserved before S-07 (null allowance) keeps its charge.
+      if (result.cost !== null) {
+        sql.exec("UPDATE live_game SET charged_usd = charged_usd + COALESCE((SELECT ? - allowance_usd FROM live_turns WHERE turn_no = ?), 0)", result.cost, game.turn);
+      }
       sql.exec("UPDATE live_turns SET status = 'done', response_text = ?, cost = ?, generation_id = ?, latency_ms = ? WHERE turn_no = ?",
         result.text, result.cost, result.generationId, result.latencyMs, game.turn);
       if (next.status !== "running") this.queueArchive();
