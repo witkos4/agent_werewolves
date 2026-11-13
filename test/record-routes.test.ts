@@ -137,6 +137,22 @@ describe("home recent games", () => {
     expect(bad.init.status).toBe(400);
     expect(bad.data.error).toBe("Pick at least one model for the pool.");
     expect(bad.data.setup.pool).toEqual([]);
+
+    // The spend limit is forwarded, and a rejected one comes back as typed.
+    const limited = crypto.randomUUID();
+    await post([["requestId", limited], ["discussionPasses", "1"], ...seats, ["pool", MODELS[5].id], ["spendLimitUsd", "0.30"]]).catch(r => r as Response);
+    expect((await runInDurableObject(liveRoom(env, limited), (_i, st) => JSON.parse(st.storage.sql.exec<{ state: string }>("SELECT state FROM live_game").one().state) as Game)).spendLimitUsd).toBe(0.3);
+    for (const typed of ["9", "abc"]) {
+      const over = await post([["requestId", crypto.randomUUID()], ["discussionPasses", "1"], ...seats, ["pool", MODELS[5].id], ["spendLimitUsd", typed]]) as unknown as { data: { error: string; spendLimit: string }; init: { status: number } };
+      expect(over.init.status).toBe(400);
+      expect(over.data).toMatchObject({ error: expect.stringContaining("spend limit"), spendLimit: typed });
+    }
+  });
+
+  it("gives the start form the limit bounds and the estimate inputs", async () => {
+    const { data } = await homeLoader(args("/")) as unknown as { data: { spendLimit: { default: number; min: number; max: number }; estimateInputs: { models: unknown[]; shapes: unknown[] } } };
+    expect(data.spendLimit).toEqual({ default: 1, min: 0.05, max: 5 });
+    expect(data.estimateInputs).toMatchObject({ models: expect.any(Array), shapes: expect.any(Array) });
   });
 
   it("shows each seat's model and personality while live and in the record, without personality prompts", async () => {
@@ -157,8 +173,9 @@ describe("home recent games", () => {
 
   it("still renders the start form when the archive is unavailable", async () => {
     const broken = { ...env, ARCHIVE: { prepare() { throw new Error("D1 down"); } } } as unknown as Env;
-    const { data } = await homeLoader(args("/", {}, broken)) as unknown as { data: { recent: unknown; requestId: string } };
+    const { data } = await homeLoader(args("/", {}, broken)) as unknown as { data: { recent: unknown; requestId: string; estimateInputs: unknown } };
     expect(data.recent).toBeNull();
+    expect(data.estimateInputs).toBeNull();
     expect(data.requestId).toMatch(/^[0-9a-f-]{36}$/);
   });
 });
