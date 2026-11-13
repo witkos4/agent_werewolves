@@ -50,6 +50,10 @@ describe("game record projection", () => {
       ["p1", "Werewolf", false], ["p2", "Seer", true], ["p3", "Werewolf", false], ["p4", "Villager", true],
       ["p5", "Villager", true], ["p6", "Villager", true], ["p7", "Villager", false], ["p8", "Villager", false],
     ]);
+    expect(record.players.filter(p => !p.survived).map(p => [p.seat, p.diedDay, p.diedBy])).toEqual([
+      ["p1", 1, "village"], ["p3", 2, "village"], ["p7", 2, "night"], ["p8", 1, "night"],
+    ]);
+    expect(record.players.filter(p => p.survived).every(p => p.diedDay === null && p.diedBy === null)).toBe(true);
     expect(shape(record.timeline)).toEqual([
       "phase: Night 1: the village sleeps.",
       "night investigate p2→p1=Werewolf why-1",

@@ -70,6 +70,26 @@ describe("archive outbox", () => {
     for (const secret of ["private-archive-rationale", "privateMoves", "investigations"]) expect(publicData).not.toContain(secret);
   });
 
+  it("stores each seat's death, and migration 0003's backfill rebuilds the same values", async () => {
+    const { room, id } = await start();
+    await playToFinish(room);
+    await runDurableObjectAlarm(room);
+    const { record } = (await room.getRecord())!;
+    const read = () => env.ARCHIVE.prepare("SELECT seat, survived, died_day, died_by FROM game_players WHERE game_id = ? ORDER BY seat").bind(id)
+      .all<{ seat: string; survived: number; died_day: number | null; died_by: string | null }>().then(r => r.results);
+    const stored = await read();
+    expect(stored).toEqual(record.players.map(p => ({ seat: p.seat, survived: p.survived ? 1 : 0, died_day: p.diedDay, died_by: p.diedBy })).sort((a, b) => a.seat.localeCompare(b.seat)));
+    expect(stored.filter(p => p.died_by === "village").length).toBeGreaterThan(0);
+    expect(stored.filter(p => p.died_by === "night").length).toBeGreaterThan(0);
+
+    // As if archived before 0003: clear the columns, then run the migration's backfill UPDATE.
+    await env.ARCHIVE.prepare("UPDATE game_players SET died_day = NULL, died_by = NULL WHERE game_id = ?").bind(id).run();
+    const migration = env.TEST_MIGRATIONS!.find(m => m.name.startsWith("0003_"))!;
+    const backfill = migration.queries.find(q => q.includes("UPDATE game_players SET"))!;
+    await env.ARCHIVE.prepare(backfill).run();
+    expect(await read()).toEqual(stored);
+  });
+
   it("archives an aborted game with its reason", async () => {
     const { room, id } = await start();
     await runDurableObjectAlarm(room); // Invalid output aborts at turn 1.

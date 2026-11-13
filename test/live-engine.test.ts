@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentView, applyMove, buildRequest, createGame, MODEL, publicGame, rolesFor, validateMove, type Game } from "../workers/game/engine";
+import { agentView, applyMove, buildRequest, createGame, deaths, MODEL, publicGame, rolesFor, validateMove, type Game } from "../workers/game/engine";
 import { MODELS } from "../workers/game/catalog";
 import type { GameSetup } from "../workers/game/setup";
 
@@ -49,6 +49,20 @@ describe("Werewolf rules and information boundaries", () => {
     expect(publicGame(game).players.every(p => p.role)).toBe(true);
     expect(game.transcript.filter(e => e.kind === "speech")).toHaveLength(7 + 5);
     expect(game.transcript.filter(e => e.kind === "votes")).toHaveLength(2);
+  });
+
+  it("reads each death's day and cause from the transcript", () => {
+    let game = discussion(night(setup(), "p1", "p8"));
+    game = discussion(night(voteOut(game, "p1", "p4"), "p3", "p7"));
+    game = voteOut(game, "p3", "p4");
+    expect(game.winner).toBe("Village");
+    expect(deaths(game)).toEqual({
+      p8: { day: 1, by: "night" }, p1: { day: 1, by: "village" },
+      p7: { day: 2, by: "night" }, p3: { day: 2, by: "village" },
+    });
+    expect(Object.keys(deaths(game)).sort()).toEqual(game.players.filter(p => !p.alive).map(p => p.id).sort());
+    game.transcript.push({ day: 2, kind: "death", text: "Iris (p9) vanished." });
+    expect(() => deaths(game)).toThrow("unknown_death_entry");
   });
 
   it("kills the wolves' most-picked target, breaking ties at random", () => {

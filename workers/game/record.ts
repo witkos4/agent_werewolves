@@ -1,4 +1,4 @@
-import { seatModel, seatPersona, type Game, type Phase, type Role } from "./engine";
+import { deaths, seatModel, seatPersona, type Death, type Game, type Phase, type Role } from "./engine";
 import type { GameSetup } from "./setup";
 
 /** Provider data for one committed move, from `live_turns` or `game_moves`. */
@@ -28,7 +28,11 @@ export type RecordMove = {
 };
 
 /** `persona` is a roster id; null for version-1 games. */
-export type RecordPlayer = { seat: string; name: string; role: Role; model: string; persona: string | null; survived: boolean };
+export type RecordPlayer = {
+  seat: string; name: string; role: Role; model: string; persona: string | null; survived: boolean;
+  /** Null for a seat that survived. */
+  diedDay: number | null; diedBy: Death["by"] | null;
+};
 
 /** The game in reading order: public entries with their rationale, private night actions inline. */
 export type TimelineItem =
@@ -95,6 +99,7 @@ export function buildRecord(
   });
 
   const known = moves.filter(m => m.costUsd !== null);
+  const died = deaths(game);
   return {
     id: game.id,
     status: game.status,
@@ -111,7 +116,8 @@ export function buildRecord(
     createdAt: game.createdAt,
     endedAt,
     engineVersion: game.version,
-    players: game.players.map(p => ({ seat: p.id, name: p.name, role: p.role, model: seatModel(game, p), persona: seatPersona(game, p), survived: p.alive })),
+    players: game.players.map(p => ({ seat: p.id, name: p.name, role: p.role, model: seatModel(game, p), persona: seatPersona(game, p), survived: p.alive,
+      diedDay: died[p.id]?.day ?? null, diedBy: died[p.id]?.by ?? null })),
     moves,
     timeline: timeline(game, moves),
   };

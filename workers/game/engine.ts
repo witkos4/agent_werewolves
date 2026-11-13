@@ -199,6 +199,25 @@ function victory(game: Game): boolean {
   return true;
 }
 
+export type Death = { day: number; by: "night" | "village" };
+const DEATH_CAUSES = { night: "died during the night", village: "was eliminated by the village" } as const;
+
+/**
+ * Who died, when and how, read from the transcript's death entries. The only
+ * reader of `kill()`'s wording; migration 0003's backfill matches the same phrases.
+ */
+export function deaths(game: Game): Record<string, Death> {
+  const result: Record<string, Death> = {};
+  for (const entry of game.transcript) {
+    if (entry.kind !== "death") continue;
+    const match = /^.* \((p\d+)\) (.+)\.$/.exec(entry.text);
+    const by = (Object.keys(DEATH_CAUSES) as Death["by"][]).find(k => DEATH_CAUSES[k] === match?.[2]);
+    if (!match || !by) throw new Error(`unknown_death_entry: ${entry.text}`);
+    result[match[1]] = { day: entry.day, by };
+  }
+  return result;
+}
+
 function kill(game: Game, target: string, cause: string) {
   const player = game.players.find(p => p.id === target)!;
   player.alive = false;
@@ -230,7 +249,7 @@ export function applyMove(previous: Game, move: Move, pick = randomIndex): Game 
     if (game.queue.length) return game;
     const target = tally(game.votes, pick).eliminated;
     game.votes = {};
-    kill(game, target, "died during the night");
+    kill(game, target, DEATH_CAUSES.night);
     if (!victory(game)) {
       game.phase = "discuss";
       game.discussionPass = 1;
@@ -253,7 +272,7 @@ export function applyMove(previous: Game, move: Move, pick = randomIndex): Game 
     if (!game.queue.length) {
       const { eliminated, tied } = tally(game.votes, pick);
       game.transcript.push({ day: game.day, kind: "votes", text: Object.entries(game.votes).map(([id, target]) => `${id} → ${target}`).join("; ") + (tied.length > 1 ? `. Tie: ${eliminated} chosen at random.` : ".") });
-      kill(game, eliminated, "was eliminated by the village");
+      kill(game, eliminated, DEATH_CAUSES.village);
       game.votes = {};
       if (!victory(game)) {
         if (game.day >= 4) throw new Error("day_limit");
