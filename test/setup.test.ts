@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MODELS, PERSONAS } from "../workers/game/catalog";
+import { createGame, rolesFor } from "../workers/game/engine";
 import { canonicalSetup, DEFAULT_SETUP, parseSetup, resolveSeats, SEAT_COUNT, type GameSetup } from "../workers/game/setup";
 
 const ids = MODELS.map(m => m.id);
@@ -58,5 +59,46 @@ describe("table setup", () => {
     expect(canonicalSetup(DEFAULT_SETUP)).toBe(canonicalSetup(parseSetup(undefined) as GameSetup));
     expect(canonicalSetup(DEFAULT_SETUP)).not.toBe(canonicalSetup({ ...DEFAULT_SETUP, pool: [ids[0]] }));
     expect(canonicalSetup(null)).toBe("null");
+  });
+});
+
+describe("forced roles (batch rotation)", () => {
+  // Wolf on seats 3 and 6, Seer on seat 8: deliberately not the unshuffled order.
+  const roles = ["Villager", "Villager", "Werewolf", "Villager", "Villager", "Werewolf", "Villager", "Seer"] as const;
+  const forced = () => ({ seats: roles.map((role, i) => ({ model: ids[i % ids.length], persona: PERSONAS[i].id, role })), pool: [] });
+
+  it("accepts concrete seats with the composition rule's roles only when allowed", () => {
+    expect(parseSetup(forced(), { allowRoles: true })).toEqual(forced());
+    expect(parseSetup(forced())).toEqual({ error: "Each seat needs a model and a personality." });
+  });
+
+  it.each([
+    ["roles on some seats only", () => ({ ...forced(), seats: forced().seats.map((s, i) => i ? s : { model: s.model, persona: s.persona }) })],
+    ["a random model", () => ({ ...forced(), seats: forced().seats.map((s, i) => i ? s : { ...s, model: "random" }), pool: [ids[0]] })],
+    ["a random personality", () => ({ ...forced(), seats: forced().seats.map((s, i) => i ? s : { ...s, persona: "random" }) })],
+    ["an unknown role", () => ({ ...forced(), seats: forced().seats.map((s, i) => i ? s : { ...s, role: "Witch" }) })],
+    ["three wolves", () => ({ ...forced(), seats: forced().seats.map((s, i) => i ? s : { ...s, role: "Werewolf" }) })],
+    ["no Seer", () => ({ ...forced(), seats: forced().seats.map((s, i) => i === 7 ? { ...s, role: "Villager" } : s) })],
+  ])("rejects %s", (_name, value) => {
+    expect(parseSetup(value(), { allowRoles: true })).toHaveProperty("error");
+  });
+
+  it("keeps forced roles in seat order instead of shuffling, and still shuffles without them", () => {
+    const setup = parseSetup(forced(), { allowRoles: true }) as GameSetup;
+    const game = createGame("g", 1, 0, setup, () => 0);
+    expect(game.players.map(p => p.role)).toEqual(roles);
+    expect(game.players.map(p => p.model)).toEqual(setup.seats.map(s => s.model));
+    expect(game.queue).toEqual(["p8"]);
+    // pick = 0 swaps every role toward the front, so unforced roles leave rolesFor order.
+    const shuffled = createGame("g", 1, 0, { ...setup, seats: setup.seats.map(({ model, persona }) => ({ model, persona })) }, () => 0);
+    expect(shuffled.players.map(p => p.role)).not.toEqual(rolesFor(SEAT_COUNT));
+    expect(shuffled.players.map(p => p.role).sort()).toEqual(rolesFor(SEAT_COUNT).sort());
+  });
+
+  it("treats forced roles as part of the requested setup", () => {
+    const setup = forced();
+    const unforced = { ...setup, seats: setup.seats.map(({ model, persona }) => ({ model, persona })) };
+    expect(canonicalSetup(setup)).not.toBe(canonicalSetup(unforced));
+    expect(canonicalSetup(setup)).toBe(canonicalSetup(forced()));
   });
 });

@@ -14,6 +14,8 @@ type Turn = { turn_no: number; body: string; attempts: number; last_attempt_at: 
 type ArchiveRow = { status: "pending" | "archived"; attempts: number };
 export type Snapshot = { seq: number; game: PublicGame };
 export type LiveStartResult = { ok: true } | { ok: false; status: number; error: string };
+/** What a batch reads from one of its games (S-09). */
+export type BatchView = { status: Game["status"]; chargedUsd: number; winner: Game["winner"]; abortReason: string | null };
 
 /**
  * Public catalog check for every model a game seats. Returns null when all
@@ -94,20 +96,22 @@ export class LiveGame {
 
   /**
    * `setup` undefined means the default; a version-1 room matches only an
-   * omitted setup. `spendLimitUsd` undefined means `SAFETY_USD`.
+   * omitted setup. `spendLimitUsd` undefined means `SAFETY_USD`. `batchId` is
+   * part of the request, so reusing an ID across batches is a conflict.
    */
-  async start(id: string, discussionPasses: number, setup?: GameSetup, spendLimitUsd?: number): Promise<LiveStartResult> {
+  async start(id: string, discussionPasses: number, setup?: GameSetup, spendLimitUsd?: number, batchId?: string): Promise<LiveStartResult> {
     const limit = spendLimitUsd ?? SAFETY_USD;
     return this.ctx.blockConcurrencyWhile(async () => {
       const existing = this.read();
       if (existing) {
         const sameSetup = existing.setup ? canonicalSetup(existing.setup) === canonicalSetup(setup ?? DEFAULT_SETUP) : setup === undefined;
         return existing.id === id && existing.discussionPasses === discussionPasses && sameSetup && effectiveLimit(existing) === limit
+          && (existing.batchId ?? null) === (batchId ?? null)
           ? { ok: true } : { ok: false, status: 409, error: "This start request was already used with different settings." };
       }
       if (!this.env.OPENROUTER_API_KEY?.trim()) return { ok: false, status: 503, error: "The game provider is not configured." };
       // Seats are drawn first so that only models the game will call are checked.
-      const game = createGame(id, discussionPasses, Date.now(), setup ?? DEFAULT_SETUP, randomIndex, limit);
+      const game = createGame(id, discussionPasses, Date.now(), setup ?? DEFAULT_SETUP, randomIndex, limit, batchId);
       const unsafe = await unsafePricing([...new Set(game.players.map(p => p.model!))]);
       if (unsafe !== null) return { ok: false, status: 503, error: `Cannot verify safe ${unsafe ? `pricing for ${unsafe}` : "model pricing"}. Try again later.` };
       const notify = this.ctx.storage.transactionSync(() => {
@@ -118,6 +122,25 @@ export class LiveGame {
       notify();
       return { ok: true };
     });
+  }
+
+  /** Status and settled ledger, for the batch that started this game. */
+  batchView(): BatchView | null {
+    const game = this.read();
+    if (!game) return null;
+    const { charged_usd } = this.ctx.storage.sql.exec<{ charged_usd: number }>("SELECT charged_usd FROM live_game").one();
+    return { status: game.status, chargedUsd: charged_usd, winner: game.winner, abortReason: game.abortReason };
+  }
+
+  /**
+   * Aborts a running game with `cancelled`; a no-op once terminal. A turn whose
+   * call is in flight keeps its charge, and its reply is dropped by `run()`'s
+   * stale-result check because the game is no longer running.
+   */
+  async cancel(): Promise<void> {
+    const game = this.read();
+    if (game?.status !== "running") return;
+    await this.abort(game, "cancelled");
   }
 
   private save(game: Game, type: "turn" | "finished" | "aborted") {

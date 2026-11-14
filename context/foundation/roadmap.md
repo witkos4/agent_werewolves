@@ -49,7 +49,7 @@ The operator wants hands-on learning of agentic workflows across the whole build
 | S-06 | mixed-model-seats-and-personas | operator seats different models and personalities at one table, by hand or drawn from a pool | S-02 | US-01, FR-003, FR-004 | done |
 | S-07 | spend-limit-and-estimate | operator sees an estimated cost, sets a spend limit, and over-budget games end and are archived as aborted | S-03 | US-01, FR-014 | in-progress |
 | S-08 | game-metrics | operator sees win rate, vote accuracy, deception success, cost and latency per model and role, each with its game count | S-03, S-06 | US-01, FR-011 | done |
-| S-09 | headless-batch-runs | operator runs a spend-capped batch of 10–20 headless games with model rotation and reviews aggregated results | S-07, S-08 | US-02, FR-016, FR-003, FR-014 | proposed |
+| S-09 | headless-batch-runs | operator runs a spend-capped batch of 10–20 headless games with model rotation and reviews aggregated results | S-07, S-08 | US-02, FR-016, FR-003, FR-014 | in-progress |
 | S-10 | archive-browse-and-filter | operator browses past games filtered by model, role, outcome, date and batch | S-03, S-06 | US-02, FR-013 | proposed |
 | S-11 | verifiable-archive | operator verifies an archived game's integrity, and crashed games land in the archive too | S-03 | US-01, FR-012 | proposed |
 
@@ -220,7 +220,7 @@ Foundations below assume these are present and do NOT re-scaffold them.
 - **Unknowns:**
   - Whether batch games run concurrently or one after another, within platform free-tier limits (infrastructure.md: workflow step and duration caps). Owner: user. Block: no.
 - **Risk:** Multiplies every earlier weakness (spend, termination, archive durability) by 10–20, so it comes last on its chain, after spend limits and metrics exist.
-- **Status:** proposed
+- **Status:** in-progress
 
 ### S-10: Archive browse and filter
 
