@@ -1,3 +1,4 @@
+import { parseSpendLimit } from "./engine";
 import { parseSetup } from "./setup";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -22,14 +23,16 @@ export async function handleGameRequest(request: Request, env: Env): Promise<Res
       if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error();
       options = value as Record<string, unknown>;
     } catch { return Response.json({ error: "Expected a JSON object." }, { status: 400 }); }
-    if (typeof options.requestId !== "string" || !validGameId(options.requestId) || ![1, 2].includes(options.discussionPasses as number) || Object.keys(options).some(k => !["requestId", "discussionPasses", "setup"].includes(k))) {
+    if (typeof options.requestId !== "string" || !validGameId(options.requestId) || ![1, 2].includes(options.discussionPasses as number) || Object.keys(options).some(k => !["requestId", "discussionPasses", "setup", "spendLimitUsd"].includes(k))) {
       return Response.json({ error: "Provide a request UUID and one or two discussion passes." }, { status: 400 });
     }
     // Omitted means the default setup; the room still needs to know it was omitted (idempotency).
     const setup = options.setup === undefined ? undefined : parseSetup(options.setup);
     if (setup && "error" in setup) return Response.json({ error: setup.error }, { status: 400 });
+    const limit = parseSpendLimit(options.spendLimitUsd);
+    if (typeof limit === "object") return Response.json({ error: limit.error }, { status: 400 });
     const id = options.requestId.toLowerCase();
-    const result = await liveRoom(env, id).startLive(id, options.discussionPasses as number, setup);
+    const result = await liveRoom(env, id).startLive(id, options.discussionPasses as number, setup, limit);
     return result.ok ? Response.json({ gameId: id, viewerUrl: `/games/${id}` }, { headers: { "Cache-Control": "no-store" } })
       : Response.json({ error: result.error }, { status: result.status });
   }

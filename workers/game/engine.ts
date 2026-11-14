@@ -32,9 +32,12 @@ export type Game = {
   turn: number;
   createdAt: number;
   deadlineAt: number;
+  /** USD the game may charge; absent before S-07, so read it through `effectiveLimit`. */
+  spendLimitUsd?: number;
 };
 
 export type PublicGame = Pick<Game, "id" | "model" | "discussionPasses" | "status" | "winner" | "abortReason" | "day" | "phase" | "transcript" | "createdAt" | "deadlineAt"> & {
+  spendLimitUsd: number;
   players: { id: string; name: string; alive: boolean; role?: Role; model: string; persona: string | null }[];
 };
 
@@ -50,11 +53,35 @@ export function seatPersona(_game: Game, player: Player): string | null {
 export const MAX_OUTPUT_TOKENS = 256;
 export const MAX_INPUT_BYTES = 48_000;
 export const MODEL = "google/gemini-3.1-flash-lite";
-// Worst-case reservations for an 8-seat, two-round game reach about $0.43 before retries.
+// The default spend limit, and the limit of every game created before S-07.
 export const SAFETY_USD = 1.0;
+export const SPEND_LIMIT_MIN = 0.05;
+export const SPEND_LIMIT_MAX = 5;
 // Dollars per token, deliberately above the verified 2026-10-29 catalog rates.
 export const INPUT_RATE_CEILING = 0.0000005;
 export const OUTPUT_RATE_CEILING = 0.000002;
+
+/**
+ * Worst-case cost of one attempt: UTF-8 bytes overbound text tokens, plus a
+ * conservative chat-envelope margin, at the rate ceilings `max_price` enforces.
+ */
+export function attemptAllowance(body: string): number {
+  return (new TextEncoder().encode(body).length + 2048) * INPUT_RATE_CEILING + MAX_OUTPUT_TOKENS * OUTPUT_RATE_CEILING;
+}
+
+export function effectiveLimit(game: Pick<Game, "spendLimitUsd">): number {
+  return game.spendLimitUsd ?? SAFETY_USD;
+}
+
+/** Validates an untrusted spend limit: omitted, or whole cents within the bounds. */
+export function parseSpendLimit(value: unknown): number | undefined | { error: string } {
+  if (value === undefined) return undefined;
+  const cents = typeof value === "number" ? value * 100 : NaN;
+  if (!Number.isFinite(cents) || Math.abs(cents - Math.round(cents)) > 1e-6 || cents < SPEND_LIMIT_MIN * 100 - 1e-6 || cents > SPEND_LIMIT_MAX * 100 + 1e-6) {
+    return { error: `Set a spend limit between $${SPEND_LIMIT_MIN.toFixed(2)} and $${SPEND_LIMIT_MAX.toFixed(2)}, in whole cents.` };
+  }
+  return Math.round(cents) / 100;
+}
 
 export function randomIndex(length: number): number {
   // Rejection sampling avoids modulo bias. Call only at a durable transition.
@@ -76,7 +103,7 @@ export function rolesFor(seats: number): Role[] {
   return ["Werewolf", "Seer", ...Array<Role>(wolves - 1).fill("Werewolf"), ...Array<Role>(seats - wolves - 1).fill("Villager")];
 }
 
-export function createGame(id: string, discussionPasses: number, now: number, setup: GameSetup = DEFAULT_SETUP, pick = randomIndex): Game {
+export function createGame(id: string, discussionPasses: number, now: number, setup: GameSetup = DEFAULT_SETUP, pick = randomIndex, spendLimitUsd = SAFETY_USD): Game {
   // Seats resolve before roles shuffle, so a seat's model never selects its role.
   const seats = resolveSeats(setup, pick);
   const roles: Role[] = rolesFor(seats.length);
@@ -92,7 +119,7 @@ export function createGame(id: string, discussionPasses: number, now: number, se
     queue: players.filter(p => p.role === "Seer").map(p => p.id), discussionPass: 1,
     votes: {}, investigations: [], privateMoves: [],
     transcript: [{ day: 1, kind: "phase", text: "Night 1: the village sleeps." }],
-    turn: 1, createdAt: now, deadlineAt: now + 45 * 60_000,
+    turn: 1, createdAt: now, deadlineAt: now + 45 * 60_000, spendLimitUsd,
   };
 }
 
@@ -101,7 +128,7 @@ export function publicGame(game: Game): PublicGame {
     id: game.id, model: game.model, discussionPasses: game.discussionPasses,
     status: game.status, winner: game.winner, abortReason: game.abortReason,
     day: game.day, phase: game.phase, transcript: game.transcript,
-    createdAt: game.createdAt, deadlineAt: game.deadlineAt,
+    createdAt: game.createdAt, deadlineAt: game.deadlineAt, spendLimitUsd: effectiveLimit(game),
     players: game.players.map(p => ({ id: p.id, name: p.name, alive: p.alive,
       model: seatModel(game, p), persona: personaName(seatPersona(game, p)),
       ...(game.status === "finished" ? { role: p.role } : {}) })),

@@ -4,6 +4,7 @@ import { keyFingerprint } from "../app/access.server";
 import { callLlm, type LlmResult } from "./llm/client";
 import { buildTurnRequest } from "./spike/story";
 import { LiveGame, type LiveStartResult, type Snapshot } from "./game/runtime";
+import { parseSpendLimit } from "./game/engine";
 import type { GameRecord } from "./game/record";
 import { parseSetup, type GameSetup } from "./game/setup";
 
@@ -151,13 +152,15 @@ export class GameRoom extends DurableObject<Env> {
     };
   }
 
-  /** `setup` omitted means the default setup. */
-  async startLive(gameId: string, discussionPasses: number, setup?: GameSetup): Promise<LiveStartResult> {
+  /** `setup` omitted means the default setup; `spendLimitUsd` omitted means the default limit. */
+  async startLive(gameId: string, discussionPasses: number, setup?: GameSetup, spendLimitUsd?: number): Promise<LiveStartResult> {
     if (this.readGame()) return { ok: false, status: 409, error: "Room already used for a spike." };
     if (![1, 2].includes(discussionPasses)) return { ok: false, status: 400, error: "Choose one or two discussion passes." };
     const parsed = setup === undefined ? undefined : parseSetup(setup);
     if (parsed && "error" in parsed) return { ok: false, status: 400, error: parsed.error };
-    return this.liveGame.start(gameId, discussionPasses, parsed);
+    const limit = parseSpendLimit(spendLimitUsd);
+    if (typeof limit === "object") return { ok: false, status: 400, error: limit.error };
+    return this.liveGame.start(gameId, discussionPasses, parsed, limit);
   }
 
   async getLiveSnapshot(): Promise<Snapshot | null> {

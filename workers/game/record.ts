@@ -57,6 +57,10 @@ export type GameRecord = {
   totalCostUsd: number | null;
   unknownCostTurns: number;
   reservedUsd: number;
+  /** The game's spend limit; null for games created before S-07. */
+  spendLimitUsd: number | null;
+  /** The settled ledger, an upper bound on real spend; null before S-07. */
+  chargedUsd: number | null;
   createdAt: number;
   endedAt: number;
   engineVersion: number;
@@ -72,7 +76,7 @@ export type GameRecord = {
 export function buildRecord(
   game: Game,
   turns: TurnData[],
-  { endedAt, reservedUsd }: { endedAt: number; reservedUsd: number },
+  { endedAt, reservedUsd, chargedUsd = null }: { endedAt: number; reservedUsd: number; chargedUsd?: number | null },
 ): GameRecord {
   if (game.status === "running") throw new Error("record_of_running_game");
   const seats = new Set(game.players.map(p => p.id));
@@ -113,6 +117,8 @@ export function buildRecord(
     totalCostUsd: known.length ? known.reduce((sum, m) => sum + m.costUsd!, 0) : null,
     unknownCostTurns: moves.length - known.length,
     reservedUsd,
+    spendLimitUsd: game.spendLimitUsd ?? null,
+    chargedUsd: game.spendLimitUsd === undefined ? null : chargedUsd,
     createdAt: game.createdAt,
     endedAt,
     engineVersion: game.version,

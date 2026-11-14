@@ -132,7 +132,7 @@ function LiveGame({ snapshot: loaderData }: { snapshot: Snapshot }) {
         {game.status === "running" && <p className="mt-2 text-gray-600 dark:text-gray-400">{night ? "The village sleeps. Night actions are private." : game.phase === "vote" ? "The village is voting. Results appear together." : "The village is discussing its suspicions."}</p>}
       </div>
       {connection === "sign-in" && <p role="alert">Your session may have expired. <a className="underline" href={`/login?next=${encodeURIComponent(`/games/${game.id}`)}`}>Sign in to reconnect</a>.</p>}
-      {game.status === "aborted" && <p role="alert" className="rounded-lg border border-amber-400 p-4">{abortMessage(game.abortReason)} No winner was declared.</p>}
+      {game.status === "aborted" && <p role="alert" className="rounded-lg border border-amber-400 p-4">{abortMessage(game.abortReason, game.spendLimitUsd ?? null)} No winner was declared.</p>}
       <ul className="grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Players">
         {game.players.map(player => <li key={player.id} className={`rounded-lg border border-gray-300 p-3 text-center dark:border-gray-700 ${!player.alive ? "opacity-60" : ""}`}>
           <p className="font-semibold">{player.name}</p><p className="text-xs">{player.id} · {player.alive ? "Alive" : "Dead"}</p>
@@ -192,10 +192,10 @@ function GameRecordView({ record, archived }: { record: GameRecord; archived: bo
         <p className="text-sm text-gray-600 dark:text-gray-400">Game record · {modelLabel(record.model)}</p>
         <h1 className="mt-2 text-3xl font-bold">{record.status === "finished" ? `${record.winner} win` : "Game stopped"}</h1>
         <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-          Ended {formatTime(record.endedAt)} · {formatDuration(record.endedAt - record.createdAt)} · {record.days} {record.days === 1 ? "day" : "days"} · {record.turns} moves · {formatCost(record)}
+          Ended {formatTime(record.endedAt)} · {formatDuration(record.endedAt - record.createdAt)} · {record.days} {record.days === 1 ? "day" : "days"} · {record.turns} moves · {formatCost(record)}{formatSpend(record) && ` · ${formatSpend(record)}`}
         </p>
       </div>
-      {record.status === "aborted" && <p role="alert" className="rounded-lg border border-amber-400 p-4">{abortMessage(record.abortReason)} No winner was declared.</p>}
+      {record.status === "aborted" && <p role="alert" className="rounded-lg border border-amber-400 p-4">{abortMessage(record.abortReason, record.spendLimitUsd)} No winner was declared.</p>}
       <ul className="grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Players">
         {record.players.map(player => <li key={player.seat} className={`rounded-lg border border-gray-300 p-3 text-center dark:border-gray-700 ${!player.survived ? "opacity-60" : ""}`}>
           <p className="font-semibold">{player.name}</p><p className="text-xs">{player.seat} · {player.survived ? "Survived" : "Dead"}</p>
@@ -263,9 +263,15 @@ function formatCost(record: GameRecord) {
   const cost = `$${record.totalCostUsd.toFixed(4)}`;
   return record.unknownCostTurns ? `${cost} (${record.unknownCostTurns} moves cost unknown)` : cost;
 }
+/** The settled ledger bounds real spend from above; shown against the game's limit. */
+function formatSpend(record: GameRecord) {
+  if (record.chargedUsd === null || record.spendLimitUsd === null) return null;
+  return `spent at most $${record.chargedUsd.toFixed(4)} of $${record.spendLimitUsd.toFixed(2)} limit`;
+}
 
-function abortMessage(reason: string | null) {
+function abortMessage(reason: string | null, limitUsd: number | null) {
   switch (reason) {
+    case "spend_limit": return limitUsd === null ? "The game reached its spend limit." : `The game reached its spend limit of $${limitUsd.toFixed(2)}.`;
     case "time_limit": return "The game reached its 45-minute time limit.";
     case "safety_budget": return "The game reached its safety allowance.";
     case "context_limit": return "The game history reached the context safety limit.";

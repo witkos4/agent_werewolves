@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GameRoom } from "../workers/game-room";
 import { SOCKET_EXPIRED_CLOSE_CODE, tuning } from "../workers/game-room";
-import type { Game } from "../workers/game/engine";
+import { attemptAllowance, type Game } from "../workers/game/engine";
 import { liveRoom, handleGameRequest } from "../workers/game/routes";
 import { archiveTuning, liveTuning } from "../workers/game/runtime";
 import { setLlmCall, type LlmCall } from "../workers/llm/client";
@@ -27,16 +27,37 @@ beforeEach(() => {
 });
 afterEach(() => { Object.assign(liveTuning, defaults); archiveTuning.firstDelayMs = 0; setLlmCall(previous); });
 
-async function start() {
+async function start(spendLimitUsd?: number) {
   const id = crypto.randomUUID();
   const room = liveRoom(env, id);
-  expect(await room.startLive(id, 1)).toEqual({ ok: true });
+  expect(await room.startLive(id, 1, undefined, spendLimitUsd)).toEqual({ ok: true });
   return { room, id };
+}
+/** Plays legal moves that lead the village to the wolves, at a fixed reported cost. */
+async function playLegally(room: DurableObjectStub<GameRoom>, cost: number | null) {
+  const wolves = (await inspect(room)).game.players.filter(p => p.role === "Werewolf").map(p => p.id);
+  setLlmCall(async request => {
+    calls++;
+    const view = JSON.parse(JSON.parse(request.body).messages[1].content);
+    const target = view.actor.role !== "Werewolf" ? wolves.find(id => view.allowedTargets.includes(id)) ?? view.allowedTargets[0]
+      : view.allowedTargets.filter((id: string) => !wolves.includes(id)).at(-1);
+    return ok(JSON.stringify(view.phase === "discuss" ? { text: "Let's compare.", rationale: "r" } : { target, rationale: "r" }), cost);
+  });
+}
+/** Runs alarms until the game ends, checking the ledger never passes the limit. */
+async function runToEnd(room: DurableObjectStub<GameRoom>, limit: number) {
+  for (let i = 0; i < 120; i++) {
+    await alarmNow(room);
+    const { game, charged } = await inspect(room);
+    expect(charged).toBeLessThanOrEqual(limit + 1e-12);
+    if (game.status !== "running") return game;
+  }
+  throw new Error("game did not end");
 }
 function inspect(room: DurableObjectStub<GameRoom>) {
   return runInDurableObject(room, (_instance, state) => {
-    const row = state.storage.sql.exec<{ state: string; reserved_usd: number }>("SELECT * FROM live_game").one();
-    return { game: JSON.parse(row.state) as Game, reserved: row.reserved_usd,
+    const row = state.storage.sql.exec<{ state: string; reserved_usd: number; charged_usd: number }>("SELECT * FROM live_game").one();
+    return { game: JSON.parse(row.state) as Game, reserved: row.reserved_usd, charged: row.charged_usd,
       turns: state.storage.sql.exec<{ turn_no: number; body: string; attempts: number; status: string; cost: number | null }>("SELECT * FROM live_turns ORDER BY turn_no").toArray(),
       events: state.storage.sql.exec<{ seq: number; type: string; payload: string }>("SELECT * FROM events ORDER BY seq").toArray() };
   });
@@ -101,6 +122,8 @@ describe("durable live games", () => {
     const next = await inspect(room);
     expect(bodies).toEqual([first.turns[0].body, first.turns[0].body]);
     expect(next.reserved).toBeCloseTo(first.reserved * 2);
+    // Neither attempt reported a cost, so both keep their full charge.
+    expect(next.charged).toBeCloseTo(first.reserved * 2);
     expect(next.turns[0]).toMatchObject({ attempts: 2, status: "done", cost: null });
   });
 
@@ -124,12 +147,78 @@ describe("durable live games", () => {
     expect(calls).toBe(0);
   });
 
-  it("reserves before a call and stops before exceeding the safety allowance", async () => {
+  it("charges before a call and stops before the ledger could pass the default limit", async () => {
     const { room } = await start();
-    await runInDurableObject(room, (_i, s) => { s.storage.sql.exec("UPDATE live_game SET reserved_usd = 1.0"); });
+    expect((await room.getLiveSnapshot())!.game.spendLimitUsd).toBe(1);
+    await runInDurableObject(room, (_i, s) => { s.storage.sql.exec("UPDATE live_game SET charged_usd = 0.999"); });
     await alarmNow(room);
-    expect((await room.getLiveSnapshot())!.game.abortReason).toBe("safety_budget");
+    expect((await room.getLiveSnapshot())!.game.abortReason).toBe("spend_limit");
     expect(calls).toBe(0);
+  });
+
+  it("aborts mid-game at its spend limit when costs stay unknown, never calling past it", async () => {
+    const { room } = await start(0.05);
+    await playLegally(room, null);
+    const game = await runToEnd(room, 0.05);
+    expect(game).toMatchObject({ status: "aborted", abortReason: "spend_limit", winner: null });
+    const stored = await inspect(room);
+    expect(calls).toBeGreaterThan(1);
+    // Every call was charged its full worst case, and the next one would not fit.
+    expect(stored.charged).toBeCloseTo(stored.reserved);
+    const pending = stored.turns.find(t => t.status === "pending")!;
+    expect(stored.charged + attemptAllowance(pending.body)).toBeGreaterThan(0.05);
+    expect(pending.attempts).toBe(0);
+    const before = calls;
+    await alarmNow(room);
+    expect(calls).toBe(before);
+  });
+
+  it("settles known costs so a game finishes under a limit its gross reservations exceed", async () => {
+    const { room } = await start(0.05);
+    await playLegally(room, 0.0001);
+    const game = await runToEnd(room, 0.05);
+    expect(game).toMatchObject({ status: "finished" });
+    const stored = await inspect(room);
+    expect(stored.reserved).toBeGreaterThan(0.05);
+    expect(stored.charged).toBeCloseTo(calls * 0.0001, 10);
+  });
+
+  it("keeps a failed attempt charged and settles only the attempt that returned", async () => {
+    const { room } = await start();
+    let attempt = 0;
+    setLlmCall(async request => {
+      if (++attempt === 1) return { ok: false, retryable: true, status: 503, reason: "http_503" };
+      const view = JSON.parse(JSON.parse(request.body).messages[1].content);
+      return ok(JSON.stringify({ target: view.allowedTargets[0], rationale: "decision" }), 0);
+    });
+    await alarmNow(room);
+    const first = await inspect(room);
+    expect(first.charged).toBeCloseTo(first.reserved);
+    await runInDurableObject(room, (_i, s) => { s.storage.sql.exec("UPDATE live_turns SET last_attempt_at = ?", Date.now() - liveTuning.quietMs - 1); });
+    await alarmNow(room);
+    const next = await inspect(room);
+    expect(next.turns[0]).toMatchObject({ status: "done", attempts: 2 });
+    // A free (cache-hit) success refunds its own charge; the failed attempt's stays.
+    expect(next.charged).toBeCloseTo(first.reserved);
+  });
+
+  it("upgrades a pre-ledger room in place, seeding its ledger from its gross reservations", async () => {
+    const { room } = await start();
+    await runInDurableObject(room, (_i, s) => {
+      s.storage.sql.exec("ALTER TABLE live_game DROP COLUMN charged_usd");
+      s.storage.sql.exec("ALTER TABLE live_turns DROP COLUMN allowance_usd");
+      s.storage.sql.exec("UPDATE live_game SET reserved_usd = 0.3");
+      const row = s.storage.sql.exec<{ state: string }>("SELECT state FROM live_game").one();
+      const { spendLimitUsd: _, ...legacy } = JSON.parse(row.state) as Game;
+      s.storage.sql.exec("UPDATE live_game SET state = ?", JSON.stringify(legacy));
+    });
+    await evictDurableObject(room);
+    await playLegally(room, 0.0002);
+    await alarmNow(room);
+    const stored = await inspect(room);
+    expect(stored.game.turn).toBe(2);
+    expect(stored.charged).toBeCloseTo(0.3 + 0.0002, 10);
+    expect((await room.getLiveSnapshot())!.game.spendLimitUsd).toBe(1);
   });
 
   it("bounds repeated provider failures", async () => {
@@ -199,6 +288,17 @@ describe("durable live games", () => {
     // Omitted setup is the default setup.
     expect(await room.startLive(id, 1, DEFAULT_SETUP)).toEqual({ ok: true });
     expect(await room.startLive(id, 1, { ...DEFAULT_SETUP, pool: [MODELS[0].id] })).toMatchObject({ ok: false, status: 409 });
+    // Omitted limit is the default limit; a different limit is a different start.
+    expect(await room.startLive(id, 1, undefined, 1)).toEqual({ ok: true });
+    expect(await room.startLive(id, 1, undefined, 0.5)).toMatchObject({ ok: false, status: 409 });
+  });
+
+  it("keeps a chosen limit idempotent and rejects out-of-range limits in the room", async () => {
+    const { room, id } = await start(0.25);
+    expect(await room.startLive(id, 1, undefined, 0.25)).toEqual({ ok: true });
+    expect(await room.startLive(id, 1)).toMatchObject({ ok: false, status: 409 });
+    const other = crypto.randomUUID();
+    expect(await liveRoom(env, other).startLive(other, 1, undefined, 9)).toMatchObject({ ok: false, status: 400 });
   });
 
   it("stores a manual mixed setup and sends each turn with its actor's model", async () => {
@@ -274,6 +374,13 @@ describe("live game HTTP boundary", () => {
   it("validates input, blocks cross-origin starts and returns only public snapshots", async () => {
     expect((await handleGameRequest(new Request("https://example.test/api/games/start", { method: "POST", body: "{}" }), env))?.status).toBe(400);
     expect((await handleGameRequest(new Request("https://example.test/api/games/start", { method: "POST", headers: { Origin: "https://evil.test" }, body: "{}" }), env))?.status).toBe(403);
+    for (const spendLimitUsd of [0.04, 5.01, "1", 0.055, null]) {
+      const body = JSON.stringify({ requestId: crypto.randomUUID(), discussionPasses: 1, spendLimitUsd });
+      const response = await handleGameRequest(new Request("https://example.test/api/games/start", { method: "POST", body }), env);
+      expect(response?.status).toBe(400);
+      expect(await response!.json()).toMatchObject({ error: expect.stringContaining("spend limit") });
+    }
+    expect(calls).toBe(0);
     const { id } = await start();
     const response = await SELF.fetch(`https://example.test/api/games/${id}`, { headers: { Authorization: `Bearer ${env.ACCESS_KEY}` } });
     expect(response.status).toBe(200);

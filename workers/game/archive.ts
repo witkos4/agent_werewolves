@@ -12,10 +12,10 @@ export async function writeArchive(db: D1Database, record: GameRecord, stateJson
   await db.batch([
     db.prepare(
       `INSERT INTO games (id, status, winner, abort_reason, model, discussion_passes, seat_count, days, turns,
-         total_cost_usd, unknown_cost_turns, reserved_usd, created_at, ended_at, archived_at, engine_version, state_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+         total_cost_usd, unknown_cost_turns, reserved_usd, spend_limit_usd, charged_usd, created_at, ended_at, archived_at, engine_version, state_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
     ).bind(r.id, r.status, r.winner, r.abortReason, r.model, r.discussionPasses, r.players.length, r.days, r.turns,
-      r.totalCostUsd, r.unknownCostTurns, r.reservedUsd, r.createdAt, r.endedAt, archivedAt, r.engineVersion, stateJson),
+      r.totalCostUsd, r.unknownCostTurns, r.reservedUsd, r.spendLimitUsd, r.chargedUsd, r.createdAt, r.endedAt, archivedAt, r.engineVersion, stateJson),
     ...r.players.map(p => db.prepare(
       `INSERT INTO game_players (game_id, seat, name, role, model, persona, survived, died_day, died_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (game_id, seat) DO NOTHING`,
@@ -32,14 +32,14 @@ export async function writeArchive(db: D1Database, record: GameRecord, stateJson
 /** Rebuilt through the same projection the room uses, from the archived state and moves. */
 export async function readArchivedRecord(db: D1Database, id: string): Promise<GameRecord | null> {
   const [games, moves] = await db.batch([
-    db.prepare("SELECT state_json, ended_at, reserved_usd FROM games WHERE id = ?").bind(id),
+    db.prepare("SELECT state_json, ended_at, reserved_usd, charged_usd FROM games WHERE id = ?").bind(id),
     db.prepare("SELECT turn_no, cost_usd, latency_ms, attempts, generation_id FROM game_moves WHERE game_id = ? ORDER BY turn_no").bind(id),
   ]);
-  const row = (games.results as { state_json: string; ended_at: number; reserved_usd: number }[])[0];
+  const row = (games.results as { state_json: string; ended_at: number; reserved_usd: number; charged_usd: number | null }[])[0];
   if (!row) return null;
   const turns = (moves.results as { turn_no: number; cost_usd: number | null; latency_ms: number | null; attempts: number; generation_id: string | null }[])
     .map((m): TurnData => ({ turnNo: m.turn_no, costUsd: m.cost_usd, latencyMs: m.latency_ms, attempts: m.attempts, generationId: m.generation_id }));
-  return buildRecord(JSON.parse(row.state_json) as Game, turns, { endedAt: row.ended_at, reservedUsd: row.reserved_usd });
+  return buildRecord(JSON.parse(row.state_json) as Game, turns, { endedAt: row.ended_at, reservedUsd: row.reserved_usd, chargedUsd: row.charged_usd });
 }
 
 export async function listRecentGames(db: D1Database, limit = 20): Promise<RecentGame[]> {

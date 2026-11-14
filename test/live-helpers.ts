@@ -14,10 +14,10 @@ export const catalog = ({ overpriced }: { overpriced?: string } = {}) => Respons
 });
 export const ok = (text: string) => ({ ok: true as const, text, cost: 0.0001, cacheHit: false, generationId: "gen", latencyMs: 5 });
 
-export async function startLiveGame(setup?: GameSetup) {
+export async function startLiveGame(setup?: GameSetup, spendLimitUsd?: number) {
   const id = crypto.randomUUID();
   const room = liveRoom(env, id);
-  expect(await room.startLive(id, 1, setup)).toEqual({ ok: true });
+  expect(await room.startLive(id, 1, setup, spendLimitUsd)).toEqual({ ok: true });
   return { room, id };
 }
 
