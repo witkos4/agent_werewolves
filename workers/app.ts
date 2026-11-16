@@ -4,8 +4,10 @@ import { cloudflareContext } from "../app/cloudflare-context";
 import { gate } from "./gate";
 import { handleSpikeRequest } from "./spike/routes";
 import { handleGameRequest } from "./game/routes";
+import { handleBatchRequest } from "./batch/routes";
 
 export { GameRoom } from "./game-room";
+export { BatchRoom } from "./batch-room";
 
 const requestHandler = createRequestHandler(
   () => import("virtual:react-router/server-build"),
@@ -19,6 +21,9 @@ export default {
 
     const game = await handleGameRequest(request, env);
     if (game) return game;
+
+    const batch = await handleBatchRequest(request, env);
+    if (batch) return batch;
 
     const spike = await handleSpikeRequest(request, env);
     if (spike) return spike;

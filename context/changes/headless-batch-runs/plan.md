@@ -400,20 +400,20 @@ Deploy, then prove the budget bound and the US-02 path in production with two sm
 
 #### Automated
 
-- [x] 1.1 Setup tests pass
-- [x] 1.2 Game room tests pass
-- [x] 1.3 Archive and metrics tests pass
-- [x] 1.4 Local migration applies
-- [x] 1.5 Typecheck passes
+- [x] 1.1 Setup tests pass — db926c1
+- [x] 1.2 Game room tests pass — db926c1
+- [x] 1.3 Archive and metrics tests pass — db926c1
+- [x] 1.4 Local migration applies — db926c1
+- [x] 1.5 Typecheck passes — db926c1
 
 ### Phase 2: Batch engine and API
 
 #### Automated
 
-- [ ] 2.1 Plan tests pass
-- [ ] 2.2 BatchRoom tests pass
-- [ ] 2.3 Route tests pass
-- [ ] 2.4 Typecheck and build pass
+- [x] 2.1 Plan tests pass
+- [x] 2.2 BatchRoom tests pass
+- [x] 2.3 Route tests pass
+- [x] 2.4 Typecheck and build pass
 
 ### Phase 3: Batch pages
 
