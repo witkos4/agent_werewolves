@@ -127,7 +127,7 @@ function LiveGame({ snapshot: loaderData }: { snapshot: Snapshot }) {
         <span role="status" className={`text-sm ${connection === "live" ? "text-green-700 dark:text-green-400" : "text-gray-600 dark:text-gray-400"}`}>{connection === "sign-in" ? "Sign-in required" : connection}</span>
       </header>
       <div>
-        <p className="text-sm text-gray-600 dark:text-gray-400">{modelLabel(game.model)}</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400">{modelLabel(game.model)}{game.batchId && <> · <BatchLink id={game.batchId} /></>}</p>
         <h1 className="mt-2 text-3xl font-bold">{game.status === "finished" ? `${game.winner} win` : game.status === "aborted" ? "Game stopped" : `${night ? "Night" : "Day"} ${game.day}`}</h1>
         {game.status === "running" && <p className="mt-2 text-gray-600 dark:text-gray-400">{night ? "The village sleeps. Night actions are private." : game.phase === "vote" ? "The village is voting. Results appear together." : "The village is discussing its suspicions."}</p>}
       </div>
@@ -189,7 +189,7 @@ function GameRecordView({ record, archived }: { record: GameRecord; archived: bo
         <span role="status" className={`text-sm ${archived ? "text-gray-600 dark:text-gray-400" : "text-amber-700 dark:text-amber-400"}`}>{archived ? "Archived" : "Archiving…"}</span>
       </header>
       <div>
-        <p className="text-sm text-gray-600 dark:text-gray-400">Game record · {modelLabel(record.model)}</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400">Game record · {modelLabel(record.model)}{record.batchId && <> · <BatchLink id={record.batchId} /></>}</p>
         <h1 className="mt-2 text-3xl font-bold">{record.status === "finished" ? `${record.winner} win` : "Game stopped"}</h1>
         <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
           Ended {formatTime(record.endedAt)} · {formatDuration(record.endedAt - record.createdAt)} · {record.days} {record.days === 1 ? "day" : "days"} · {record.turns} moves · {formatCost(record)}{formatSpend(record) && ` · ${formatSpend(record)}`}
@@ -269,8 +269,13 @@ function formatSpend(record: GameRecord) {
   return `spent at most $${record.chargedUsd.toFixed(4)} of $${record.spendLimitUsd.toFixed(2)} limit`;
 }
 
+function BatchLink({ id }: { id: string }) {
+  return <Link to={`/batches/${id}`} className="underline">Part of a batch →</Link>;
+}
+
 function abortMessage(reason: string | null, limitUsd: number | null) {
   switch (reason) {
+    case "cancelled": return "The batch was cancelled.";
     case "spend_limit": return limitUsd === null ? "The game reached its spend limit." : `The game reached its spend limit of $${limitUsd.toFixed(2)}.`;
     case "time_limit": return "The game reached its 45-minute time limit.";
     case "safety_budget": return "The game reached its safety allowance.";

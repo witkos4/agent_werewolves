@@ -12,7 +12,7 @@ import type { Role } from "./engine";
 /** A ratio with what it is based on. `value` is null when `denominator` is 0. */
 export type Figure = { value: number | null; numerator: number; denominator: number; games: number };
 
-export type MetricFilter = { seats?: number };
+export type MetricFilter = { seats?: number; batchId?: string };
 
 export type MetricRows = {
   seatCounts: number[];
@@ -61,13 +61,12 @@ export async function loadMetrics(db: D1Database, filter: MetricFilter = {}): Pr
   return computeMetrics(await readMetricRows(db, filter));
 }
 
-// `?1` is the seat-count filter, or NULL for every table size.
-const IN_SCOPE = "(?1 IS NULL OR g.seat_count = ?1)";
+// `?1` is the seat-count filter, or NULL for every table size; `?2` the batch, or NULL for every game.
+const IN_SCOPE = "(?1 IS NULL OR g.seat_count = ?1) AND (?2 IS NULL OR g.batch_id = ?2)";
 const FINISHED = `g.status = 'finished' AND ${IN_SCOPE}`;
 
-export async function readMetricRows(db: D1Database, { seats }: MetricFilter = {}): Promise<MetricRows> {
-  const seatFilter = seats ?? null;
-  const q = (sql: string) => db.prepare(sql).bind(seatFilter);
+export async function readMetricRows(db: D1Database, { seats, batchId }: MetricFilter = {}): Promise<MetricRows> {
+  const q = (sql: string) => db.prepare(sql).bind(seats ?? null, batchId ?? null);
   const [seatCounts, seatRows, votes, eliminations, rounds, turns, games] = await db.batch([
     db.prepare("SELECT DISTINCT seat_count FROM games ORDER BY seat_count"),
     q(`SELECT p.game_id, p.model, p.role, COUNT(*) AS seats,

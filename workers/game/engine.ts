@@ -1,5 +1,7 @@
 import { modelById, personaById } from "./catalog";
-import { DEFAULT_SETUP, resolveSeats, type GameSetup } from "./setup";
+import { DEFAULT_SETUP, resolveSeats, rolesFor, type GameSetup } from "./setup";
+
+export { rolesFor };
 
 export type Role = "Werewolf" | "Seer" | "Villager";
 export type Phase = "investigate" | "kill" | "discuss" | "vote";
@@ -34,10 +36,13 @@ export type Game = {
   deadlineAt: number;
   /** USD the game may charge; absent before S-07, so read it through `effectiveLimit`. */
   spendLimitUsd?: number;
+  /** The batch that started this game (S-09); absent for single games. */
+  batchId?: string;
 };
 
 export type PublicGame = Pick<Game, "id" | "model" | "discussionPasses" | "status" | "winner" | "abortReason" | "day" | "phase" | "transcript" | "createdAt" | "deadlineAt"> & {
   spendLimitUsd: number;
+  batchId: string | null;
   players: { id: string; name: string; alive: boolean; role?: Role; model: string; persona: string | null }[];
 };
 
@@ -93,23 +98,18 @@ export function randomIndex(length: number): number {
 
 const NAMES = ["Ada", "Bram", "Cora", "Dax", "Esme", "Finn", "Gwen", "Hugo", "Iris"];
 
-/**
- * PRD composition rule: wolves are a third of the seats, rounded down, plus one
- * Seer; Villagers fill the rest. Listed before the shuffle as p1 wolf, p2 Seer,
- * then any other wolves, then Villagers.
- */
-export function rolesFor(seats: number): Role[] {
-  const wolves = Math.floor(seats / 3);
-  return ["Werewolf", "Seer", ...Array<Role>(wolves - 1).fill("Werewolf"), ...Array<Role>(seats - wolves - 1).fill("Villager")];
-}
-
-export function createGame(id: string, discussionPasses: number, now: number, setup: GameSetup = DEFAULT_SETUP, pick = randomIndex, spendLimitUsd = SAFETY_USD): Game {
+export function createGame(id: string, discussionPasses: number, now: number, setup: GameSetup = DEFAULT_SETUP, pick = randomIndex, spendLimitUsd = SAFETY_USD, batchId?: string): Game {
   // Seats resolve before roles shuffle, so a seat's model never selects its role.
+  // A batch rotation setup forces every seat's role instead (validated by parseSetup).
   const seats = resolveSeats(setup, pick);
-  const roles: Role[] = rolesFor(seats.length);
-  for (let i = roles.length - 1; i > 0; i--) {
-    const j = pick(i + 1);
-    [roles[i], roles[j]] = [roles[j], roles[i]];
+  let roles: Role[];
+  if (seats.every(s => s.role)) roles = seats.map(s => s.role!);
+  else {
+    roles = rolesFor(seats.length);
+    for (let i = roles.length - 1; i > 0; i--) {
+      const j = pick(i + 1);
+      [roles[i], roles[j]] = [roles[j], roles[i]];
+    }
   }
   const players = roles.map((role, i) => ({ id: `p${i + 1}`, name: NAMES[i], role, alive: true, model: seats[i].model, persona: seats[i].persona }));
   const models = new Set(seats.map(s => s.model));
@@ -120,6 +120,7 @@ export function createGame(id: string, discussionPasses: number, now: number, se
     votes: {}, investigations: [], privateMoves: [],
     transcript: [{ day: 1, kind: "phase", text: "Night 1: the village sleeps." }],
     turn: 1, createdAt: now, deadlineAt: now + 45 * 60_000, spendLimitUsd,
+    ...(batchId === undefined ? {} : { batchId }),
   };
 }
 
@@ -128,7 +129,7 @@ export function publicGame(game: Game): PublicGame {
     id: game.id, model: game.model, discussionPasses: game.discussionPasses,
     status: game.status, winner: game.winner, abortReason: game.abortReason,
     day: game.day, phase: game.phase, transcript: game.transcript,
-    createdAt: game.createdAt, deadlineAt: game.deadlineAt, spendLimitUsd: effectiveLimit(game),
+    createdAt: game.createdAt, deadlineAt: game.deadlineAt, spendLimitUsd: effectiveLimit(game), batchId: game.batchId ?? null,
     players: game.players.map(p => ({ id: p.id, name: p.name, alive: p.alive,
       model: seatModel(game, p), persona: personaName(seatPersona(game, p)),
       ...(game.status === "finished" ? { role: p.role } : {}) })),

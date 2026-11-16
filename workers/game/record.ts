@@ -61,6 +61,8 @@ export type GameRecord = {
   spendLimitUsd: number | null;
   /** The settled ledger, an upper bound on real spend; null before S-07. */
   chargedUsd: number | null;
+  /** The batch that started the game; null for single games. */
+  batchId: string | null;
   createdAt: number;
   endedAt: number;
   engineVersion: number;
@@ -119,6 +121,7 @@ export function buildRecord(
     reservedUsd,
     spendLimitUsd: game.spendLimitUsd ?? null,
     chargedUsd: game.spendLimitUsd === undefined ? null : chargedUsd,
+    batchId: game.batchId ?? null,
     createdAt: game.createdAt,
     endedAt,
     engineVersion: game.version,

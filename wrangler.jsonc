@@ -28,9 +28,16 @@
     }
   ],
   "durable_objects": {
-    "bindings": [{ "name": "GAME_ROOM", "class_name": "GameRoom" }]
+    "bindings": [
+      { "name": "GAME_ROOM", "class_name": "GameRoom" },
+      { "name": "BATCH_ROOM", "class_name": "BatchRoom" }
+    ]
   },
-  // One-way: once deployed, `wrangler rollback` cannot cross back past this
-  // migration. Never rename or remove GameRoom; evolve its SQLite schema instead.
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GameRoom"] }]
+  // One-way: once deployed, `wrangler rollback` cannot cross back past these
+  // migrations. Never rename or remove GameRoom or BatchRoom; evolve their
+  // SQLite schemas in code instead.
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["GameRoom"] },
+    { "tag": "v2", "new_sqlite_classes": ["BatchRoom"] }
+  ]
 }

@@ -3,7 +3,7 @@ import { DurableObject } from "cloudflare:workers";
 import { keyFingerprint } from "../app/access.server";
 import { callLlm, type LlmResult } from "./llm/client";
 import { buildTurnRequest } from "./spike/story";
-import { LiveGame, type LiveStartResult, type Snapshot } from "./game/runtime";
+import { LiveGame, type BatchView, type LiveStartResult, type Snapshot } from "./game/runtime";
 import { parseSpendLimit } from "./game/engine";
 import type { GameRecord } from "./game/record";
 import { parseSetup, type GameSetup } from "./game/setup";
@@ -152,15 +152,30 @@ export class GameRoom extends DurableObject<Env> {
     };
   }
 
-  /** `setup` omitted means the default setup; `spendLimitUsd` omitted means the default limit. */
-  async startLive(gameId: string, discussionPasses: number, setup?: GameSetup, spendLimitUsd?: number): Promise<LiveStartResult> {
+  /**
+   * `setup` omitted means the default setup; `spendLimitUsd` omitted means the
+   * default limit. `batchId` is set only by a BatchRoom (never the HTTP route),
+   * and only then may the setup force roles.
+   */
+  async startLive(gameId: string, discussionPasses: number, setup?: GameSetup, spendLimitUsd?: number, batchId?: string): Promise<LiveStartResult> {
     if (this.readGame()) return { ok: false, status: 409, error: "Room already used for a spike." };
     if (![1, 2].includes(discussionPasses)) return { ok: false, status: 400, error: "Choose one or two discussion passes." };
-    const parsed = setup === undefined ? undefined : parseSetup(setup);
+    const parsed = setup === undefined ? undefined : parseSetup(setup, { allowRoles: batchId !== undefined });
     if (parsed && "error" in parsed) return { ok: false, status: 400, error: parsed.error };
     const limit = parseSpendLimit(spendLimitUsd);
     if (typeof limit === "object") return { ok: false, status: 400, error: limit.error };
-    return this.liveGame.start(gameId, discussionPasses, parsed, limit);
+    return this.liveGame.start(gameId, discussionPasses, parsed, limit, batchId);
+  }
+
+  /** The game's status and settled ledger, for its batch. Null before a live game exists. */
+  async getBatchView(): Promise<BatchView | null> {
+    await this.liveGame.touch();
+    return this.liveGame.batchView();
+  }
+
+  /** Aborts a running live game with `cancelled`; idempotent. */
+  async cancelLive(): Promise<void> {
+    await this.liveGame.cancel();
   }
 
   async getLiveSnapshot(): Promise<Snapshot | null> {
