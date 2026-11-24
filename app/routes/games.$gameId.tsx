@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { data, isRouteErrorResponse, Link, useRevalidator } from "react-router";
 import { cloudflareContext } from "../cloudflare-context";
-import { applyRevealedRoles, extractRoles, hideRolesVisually, initialRoleVisibility, roleVisibilityNote, showCachedRoles, visibleRole } from "../spectator-roles";
+import {
+  createRoleRevealActions,
+  initialRoleVisibility,
+  roleVisibilityNote,
+  visibleRole,
+  type RoleVisibilityState,
+} from "../spectator-roles";
 import { readArchivedRecord } from "../../workers/game/archive";
-import { liveRoom, validGameId, wantsRevealedRoles } from "../../workers/game/routes";
+import { liveRoom, validGameId } from "../../workers/game/routes";
 import type { PublicGame } from "../../workers/game/engine";
 import { modelLabel, personaById } from "../../workers/game/catalog";
 import type { GameRecord, TimelineItem } from "../../workers/game/record";
@@ -18,14 +24,15 @@ export function headers() { return { "Cache-Control": "no-store" }; }
 type PageData = { kind: "live"; snapshot: Snapshot } | { kind: "record"; record: GameRecord; archived: boolean };
 
 /**
- * A running game is the live viewer. A terminal game is its record, read from
- * the D1 archive, or from the room (marked "archiving") until the archive lands.
+ * A running game is the live viewer. Live page loads always keep hidden roles
+ * redacted regardless of URL query parameters; spectators must explicitly use
+ * the live Shown control to reveal roles. A terminal game is its record, read
+ * from the D1 archive, or from the room (marked "archiving") until it lands.
  */
-export async function loader({ params, request, context }: Route.LoaderArgs) {
+export async function loader({ params, context }: Route.LoaderArgs) {
   if (!validGameId(params.gameId)) throw new Response("Game not found", { status: 404 });
   const { env } = context.get(cloudflareContext);
   const id = params.gameId.toLowerCase();
-  const revealRoles = wantsRevealedRoles(new URL(request.url));
   const init = { headers: { "Cache-Control": "no-store" } };
   try {
     const record = await readArchivedRecord(env.ARCHIVE, id);
@@ -35,7 +42,7 @@ export async function loader({ params, request, context }: Route.LoaderArgs) {
     console.log(JSON.stringify({ evt: "archive_read_failed", gameId: id, error: String(error) }));
   }
   const room = liveRoom(env, id);
-  const snapshot = await room.getLiveSnapshot({ revealRoles });
+  const snapshot = await room.getLiveSnapshot();
   if (!snapshot) throw new Response("Game not found", { status: 404 });
   if (snapshot.game.status === "running") return data<PageData>({ kind: "live", snapshot }, init);
   const fromRoom = await room.getRecord();
@@ -55,19 +62,39 @@ function LiveGame({ snapshot: loaderData }: { snapshot: Snapshot }) {
   const revalidator = useRevalidator();
   const [game, setGame] = useState(loaderData.game);
   const [connection, setConnection] = useState<Connection>(loaderData.game.status === "running" ? "connecting" : "closed");
-  const [visibility, setVisibility] = useState(() => initialRoleVisibility(loaderData.game));
+  const [visibility, setVisibility] = useState(initialRoleVisibility);
   const [loadingRoles, setLoadingRoles] = useState(false);
   const [revealError, setRevealError] = useState<string | null>(null);
-  const revealAbortRef = useRef<AbortController | null>(null);
-  const showRolesRef = useRef(visibility.showRoles);
-  showRolesRef.current = visibility.showRoles;
+  const gameStatusRef = useRef(game.status);
+  gameStatusRef.current = game.status;
+  const visibilityRef = useRef(visibility);
+  visibilityRef.current = visibility;
+  const loadingRolesRef = useRef(loadingRoles);
+  loadingRolesRef.current = loadingRoles;
+  const revalidatorRef = useRef(revalidator);
+  revalidatorRef.current = revalidator;
+  const roleActionsRef = useRef<ReturnType<typeof createRoleRevealActions> | null>(null);
+  if (!roleActionsRef.current) {
+    roleActionsRef.current = createRoleRevealActions({
+      gameId: loaderData.game.id,
+      getGameStatus: () => gameStatusRef.current,
+      getVisibility: () => visibilityRef.current,
+      isLoading: () => loadingRolesRef.current,
+      setVisibility,
+      setLoadingRoles,
+      setRevealError,
+      onSignIn: () => setConnection("sign-in"),
+      onTerminalSnapshot: terminal => {
+        setGame(terminal);
+        revalidatorRef.current.revalidate();
+      },
+    });
+  }
 
-  useEffect(() => () => { revealAbortRef.current?.abort(); }, []);
+  useEffect(() => () => { roleActionsRef.current?.abort(); }, []);
 
   useEffect(() => {
     setGame(loaderData.game);
-    const loaderRoles = loaderData.game.status === "running" ? extractRoles(loaderData.game) : null;
-    if (loaderRoles) setVisibility(prev => (prev.hasRevealed ? prev : applyRevealedRoles(loaderRoles)));
     if (loaderData.game.status !== "running") { setConnection("closed"); return; }
     let seq = loaderData.seq;
     let ended = false;
@@ -82,7 +109,7 @@ function LiveGame({ snapshot: loaderData }: { snapshot: Snapshot }) {
     function connect() {
       if (stopped || ended) return;
       const scheme = location.protocol === "https:" ? "wss" : "ws";
-      const rolesParam = showRolesRef.current ? "&roles=shown" : "";
+      const rolesParam = visibilityRef.current.showRoles ? "&roles=shown" : "";
       const ws = new WebSocket(`${scheme}://${location.host}/api/games/${loaderData.game.id}/ws?after=${seq}${rolesParam}`);
       socket = ws;
       ws.onopen = () => {
@@ -134,52 +161,38 @@ function LiveGame({ snapshot: loaderData }: { snapshot: Snapshot }) {
     return () => { stopped = true; clearTimeout(retry); clearInterval(heartbeat); socket?.close(); };
   }, [loaderData]);
 
-  async function handleShowRoles() {
-    if (visibility.showRoles || loadingRoles || game.status !== "running") return;
-    setRevealError(null);
-    if (visibility.revealedRoles) {
-      setVisibility(showCachedRoles);
-      return;
-    }
-    const controller = new AbortController();
-    revealAbortRef.current?.abort();
-    revealAbortRef.current = controller;
-    setLoadingRoles(true);
-    try {
-      const response = await fetch(`/api/games/${game.id}?roles=shown`, { cache: "no-store", signal: controller.signal });
-      if (controller.signal.aborted) return;
-      if (response.status === 401 || response.status === 404) {
-        setConnection("sign-in");
-        return;
-      }
-      if (!response.ok) throw new Error("reveal_failed");
-      const snapshot = await response.json() as Snapshot;
-      if (controller.signal.aborted) return;
-      const roles = extractRoles(snapshot.game);
-      if (!roles) throw new Error("missing_roles");
-      setVisibility(applyRevealedRoles(roles));
-      if (snapshot.game.status !== "running") {
-        setGame(snapshot.game);
-        revalidator.revalidate();
-      }
-    } catch {
-      if (!controller.signal.aborted) setRevealError("Could not load roles. Try again.");
-    } finally {
-      if (revealAbortRef.current === controller) {
-        revealAbortRef.current = null;
-        setLoadingRoles(false);
-      }
-    }
-  }
+  return (
+    <LiveGameView
+      game={game}
+      connection={connection}
+      visibility={visibility}
+      loadingRoles={loadingRoles}
+      revealError={revealError}
+      onShowRoles={() => { void roleActionsRef.current?.showRoles(); }}
+      onHideRoles={() => { roleActionsRef.current?.hideRoles(); }}
+    />
+  );
+}
 
-  function handleHideRoles() {
-    revealAbortRef.current?.abort();
-    revealAbortRef.current = null;
-    setLoadingRoles(false);
-    setRevealError(null);
-    setVisibility(hideRolesVisually);
-  }
+export type LiveGameViewProps = {
+  game: PublicGame;
+  connection: Connection;
+  visibility: RoleVisibilityState;
+  loadingRoles: boolean;
+  revealError: string | null;
+  onShowRoles: () => void;
+  onHideRoles: () => void;
+};
 
+export function LiveGameView({
+  game,
+  connection,
+  visibility,
+  loadingRoles,
+  revealError,
+  onShowRoles,
+  onHideRoles,
+}: LiveGameViewProps) {
   const night = game.phase === "investigate" || game.phase === "kill";
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-6 py-10">
@@ -202,7 +215,7 @@ function LiveGame({ snapshot: loaderData }: { snapshot: Snapshot }) {
               <button
                 type="button"
                 aria-pressed={!visibility.showRoles}
-                onClick={handleHideRoles}
+                onClick={onHideRoles}
                 className={`rounded-md px-3 py-1 font-medium ${!visibility.showRoles ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900" : "text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"}`}
               >
                 Hidden
@@ -211,7 +224,7 @@ function LiveGame({ snapshot: loaderData }: { snapshot: Snapshot }) {
                 type="button"
                 aria-pressed={visibility.showRoles}
                 disabled={loadingRoles}
-                onClick={handleShowRoles}
+                onClick={onShowRoles}
                 className={`rounded-md px-3 py-1 font-medium disabled:opacity-50 ${visibility.showRoles ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900" : "text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"}`}
               >
                 {loadingRoles ? "Loading roles…" : "Shown"}

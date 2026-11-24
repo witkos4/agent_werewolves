@@ -203,7 +203,8 @@ export class GameRoom extends DurableObject<Env> {
 
     const url = new URL(request.url);
     const after = Number(url.searchParams.get("after"));
-    const revealRoles = wantsRevealedRoles(url);
+    const origin = request.headers.get("Origin");
+    const revealRoles = wantsRevealedRoles(url) && (origin === null || origin === url.origin);
     const { 0: client, 1: server } = new WebSocketPair();
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({

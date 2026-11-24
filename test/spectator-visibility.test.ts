@@ -1,16 +1,19 @@
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { createElement } from "react";
+import { createElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createStaticHandler, createStaticRouter, RouterContextProvider, StaticRouterProvider, useLoaderData } from "react-router";
+import { createStaticHandler, createStaticRouter, MemoryRouter, RouterContextProvider, StaticRouterProvider, useLoaderData } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { issueSession, SESSION_COOKIE } from "../app/access.server";
 import { cloudflareContext } from "../app/cloudflare-context";
-import GamePage, { loader as gameLoader } from "../app/routes/games.$gameId";
+import GamePage, { LiveGameView, loader as gameLoader } from "../app/routes/games.$gameId";
 import {
   applyRevealedRoles,
+  createRoleRevealActions,
   extractRoles,
   hideRolesVisually,
   initialRoleVisibility,
+  ROLE_REVEAL_HEADER,
   roleVisibilityNote,
   showCachedRoles,
   visibleRole,
@@ -40,6 +43,11 @@ afterEach(() => {
   setLlmCall(previous);
 });
 
+async function cookieHeader() {
+  const token = await issueSession(env.ACCESS_KEY, Date.now());
+  return { Cookie: `${SESSION_COOKIE}=${token}` };
+}
+
 function routeArgs(path: string, params: Record<string, string> = {}) {
   const context = new RouterContextProvider();
   context.set(cloudflareContext, { env, ctx: {} as ExecutionContext });
@@ -52,9 +60,9 @@ async function loadGamePage(path: string, id: string) {
   return (result as unknown as { data: Awaited<ReturnType<typeof gameLoader>>["data"] }).data;
 }
 
-async function connectWs(id: string, query: string) {
+async function connectWs(id: string, query: string, extraHeaders: Record<string, string> = {}) {
   const response = await SELF.fetch(`https://example.test/api/games/${id}/ws?${query}`, {
-    headers: { ...AUTH, Upgrade: "websocket" },
+    headers: { ...AUTH, Upgrade: "websocket", ...extraHeaders },
   });
   expect(response.status).toBe(101);
   const ws = response.webSocket!;
@@ -94,6 +102,26 @@ async function renderLiveGameHtml(snapshot: Snapshot) {
   return renderToStaticMarkup(createElement(StaticRouterProvider, { router, context }));
 }
 
+type ButtonElement = ReactElement<{
+  children?: ReactNode;
+  onClick?: () => void;
+  "aria-pressed"?: boolean;
+  disabled?: boolean;
+}>;
+
+/** Collects every <button> element in a React element tree. */
+function findButtons(node: ReactNode, found: ButtonElement[] = []): ButtonElement[] {
+  if (Array.isArray(node)) {
+    for (const child of node) findButtons(child, found);
+    return found;
+  }
+  if (!isValidElement(node)) return found;
+  if (node.type === "button") found.push(node as ButtonElement);
+  const props = node.props as { children?: ReactNode };
+  if (props.children !== undefined) findButtons(props.children, found);
+  return found;
+}
+
 describe("spectator role visibility projection & opt-in parsing", () => {
   it("parses roles query parameter strictly and fails closed to hidden", () => {
     for (const query of ["", "?roles=", "?roles=hidden", "?roles=true", "?roles=1", "?roles=SHOWN", "?roles=show"]) {
@@ -124,7 +152,72 @@ describe("spectator role visibility projection & opt-in parsing", () => {
 });
 
 describe("spectator role visibility HTTP and WebSocket boundaries", () => {
-  it("keeps hidden roles out of unrevealed snapshots, loader data, and WebSocket events even while another spectator reveals", async () => {
+  it("keeps browser navigation redacted even with ?roles=shown and requires explicit Shown header for cookie-authenticated snapshots", async () => {
+    const { room, id } = await startLiveGame();
+    const authoritative = await readGame(room);
+    await stubVillageWin(room, "nav-secret-rationale");
+    await runDurableObjectAlarm(room);
+
+    // Page navigation with ?roles=shown stays redacted while the game is running.
+    for (const path of [`/games/${id}`, `/games/${id}?roles=shown`, `/games/${id}?roles=hidden`, `/games/${id}?roles=true`]) {
+      const page = await loadGamePage(path, id);
+      expect(page.kind).toBe("live");
+      if (page.kind !== "live") throw new Error("expected live");
+      expectNoRoles(page.snapshot.game, JSON.stringify(page));
+      expect(JSON.stringify(page)).not.toContain("nav-secret-rationale");
+    }
+
+    const cookie = await cookieHeader();
+    // Cookie-authenticated browser GET with ?roles=shown alone (direct navigation) stays redacted.
+    const navVariants: Record<string, string>[] = [
+      cookie,
+      { ...cookie, "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none" },
+      { ...cookie, [ROLE_REVEAL_HEADER]: "shown", "Sec-Fetch-Mode": "navigate" },
+      { ...cookie, [ROLE_REVEAL_HEADER]: "shown", Origin: "https://evil.test" },
+      { ...cookie, [ROLE_REVEAL_HEADER]: "shown", "Sec-Fetch-Site": "cross-site" },
+      { ...cookie, Authorization: "Bearer wrong-key-012345678901234567890123456789" },
+    ];
+    for (const headers of navVariants) {
+      const response = await SELF.fetch(`https://example.test/api/games/${id}?roles=shown`, { headers });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Cache-Control")).toBe("no-store");
+      const text = await response.text();
+      expectNoRoles((JSON.parse(text) as Snapshot).game, text);
+    }
+
+    // Explicit same-origin request from the Shown control discloses roles to a cookie-authenticated browser.
+    const browserReveal = await SELF.fetch(`https://example.test/api/games/${id}?roles=shown`, {
+      headers: { ...cookie, [ROLE_REVEAL_HEADER]: "shown", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Site": "same-origin" },
+    });
+    expect(browserReveal.status).toBe(200);
+    expect(browserReveal.headers.get("Cache-Control")).toBe("no-store");
+    const browserRevealText = await browserReveal.text();
+    expectExactRoles((JSON.parse(browserRevealText) as Snapshot).game, authoritative);
+    expect(browserRevealText).not.toContain("nav-secret-rationale");
+
+    // Bearer-authenticated script GET with ?roles=shown still works without the browser header.
+    const scriptReveal = await SELF.fetch(`https://example.test/api/games/${id}?roles=shown`, { headers: AUTH });
+    expect(scriptReveal.status).toBe(200);
+    const scriptRevealText = await scriptReveal.text();
+    expectExactRoles((JSON.parse(scriptRevealText) as Snapshot).game, authoritative);
+    expect(scriptRevealText).not.toContain("nav-secret-rationale");
+
+    // End-of-game reveal still returns the full record with every role without ?roles=shown.
+    await playToFinish(room, "nav-secret-rationale");
+    const endedPage = await loadGamePage(`/games/${id}`, id);
+    expect(endedPage.kind).toBe("record");
+    if (endedPage.kind !== "record") throw new Error("expected record");
+    expect(endedPage.record.players.map(p => [p.seat, p.role])).toEqual(authoritative.players.map(p => [p.id, p.role]));
+
+    // Both cookie and bearer snapshot GETs reveal roles once finished without ?roles=shown.
+    for (const headers of [cookie, AUTH]) {
+      const endedSnapshot = await SELF.fetch(`https://example.test/api/games/${id}`, { headers });
+      expect(endedSnapshot.status).toBe(200);
+      expectExactRoles((await endedSnapshot.json() as Snapshot).game, authoritative);
+    }
+  });
+
+  it("keeps hidden roles out of unrevealed snapshots and WebSocket events even while another spectator reveals", async () => {
     const { room, id } = await startLiveGame();
     const authoritative = await readGame(room);
     await stubVillageWin(room, "ws-secret-rationale");
@@ -139,30 +232,27 @@ describe("spectator role visibility HTTP and WebSocket boundaries", () => {
     }
 
     // Unauthenticated reveal request is blocked by the access gate.
-    expect((await SELF.fetch(`https://example.test/api/games/${id}?roles=shown`)).status).toBe(404);
+    expect((await SELF.fetch(`https://example.test/api/games/${id}?roles=shown`, {
+      headers: { [ROLE_REVEAL_HEADER]: "shown" },
+    })).status).toBe(404);
 
-    // Explicit reveal HTTP snapshot discloses every authoritative role and no private reasoning.
-    const revealedRes = await SELF.fetch(`https://example.test/api/games/${id}?roles=shown`, { headers: AUTH });
-    expect(revealedRes.status).toBe(200);
-    expect(revealedRes.headers.get("Cache-Control")).toBe("no-store");
-    const revealedText = await revealedRes.text();
-    expectExactRoles((JSON.parse(revealedText) as Snapshot).game, authoritative);
-    expect(revealedText).not.toContain("ws-secret-rationale");
-
-    // Unrevealed and revealed WebSockets connected concurrently to the same live room.
+    // Unrevealed, cross-origin, and revealed WebSockets connected concurrently to the same live room.
     const hiddenWs = await connectWs(id, "after=0");
     const explicitHiddenWs = await connectWs(id, "after=0&roles=hidden");
+    const crossOriginWs = await connectWs(id, "after=0&roles=shown", { Origin: "https://evil.test" });
     const revealedWs = await connectWs(id, "after=0&roles=shown");
 
     await vi.waitFor(() => {
       expect(hiddenWs.raw).toHaveLength(1);
       expect(explicitHiddenWs.raw).toHaveLength(1);
+      expect(crossOriginWs.raw).toHaveLength(1);
       expect(revealedWs.raw).toHaveLength(1);
     });
 
-    // Backlog check: unrevealed sockets have no roles; revealed socket has exact roles.
+    // Backlog check: unrevealed and cross-origin sockets have no roles; revealed socket has exact roles.
     expectNoRoles(JSON.parse(hiddenWs.raw[0]).payload, hiddenWs.raw[0]);
     expectNoRoles(JSON.parse(explicitHiddenWs.raw[0]).payload, explicitHiddenWs.raw[0]);
+    expectNoRoles(JSON.parse(crossOriginWs.raw[0]).payload, crossOriginWs.raw[0]);
     expectExactRoles(JSON.parse(revealedWs.raw[0]).payload, authoritative);
 
     // Advance one turn (Seer investigation): verify live broadcast isolation.
@@ -170,12 +260,14 @@ describe("spectator role visibility HTTP and WebSocket boundaries", () => {
     await vi.waitFor(() => {
       expect(hiddenWs.raw).toHaveLength(2);
       expect(explicitHiddenWs.raw).toHaveLength(2);
+      expect(crossOriginWs.raw).toHaveLength(2);
       expect(revealedWs.raw).toHaveLength(2);
     });
     expectNoRoles(JSON.parse(hiddenWs.raw[1]).payload, hiddenWs.raw[1]);
     expectNoRoles(JSON.parse(explicitHiddenWs.raw[1]).payload, explicitHiddenWs.raw[1]);
+    expectNoRoles(JSON.parse(crossOriginWs.raw[1]).payload, crossOriginWs.raw[1]);
     expectExactRoles(JSON.parse(revealedWs.raw[1]).payload, authoritative);
-    for (const msg of [hiddenWs.raw[1], explicitHiddenWs.raw[1], revealedWs.raw[1]]) {
+    for (const msg of [hiddenWs.raw[1], explicitHiddenWs.raw[1], crossOriginWs.raw[1], revealedWs.raw[1]]) {
       expect(msg).not.toContain("ws-secret-rationale");
     }
 
@@ -185,10 +277,12 @@ describe("spectator role visibility HTTP and WebSocket boundaries", () => {
     await vi.waitFor(() => {
       expect(hiddenWs.raw).toHaveLength(3);
       expect(explicitHiddenWs.raw).toHaveLength(3);
+      expect(crossOriginWs.raw).toHaveLength(3);
       expect(revealedWs.raw).toHaveLength(3);
     });
     expectNoRoles(JSON.parse(hiddenWs.raw[2]).payload, hiddenWs.raw[2]);
     expectNoRoles(JSON.parse(explicitHiddenWs.raw[2]).payload, explicitHiddenWs.raw[2]);
+    expectNoRoles(JSON.parse(crossOriginWs.raw[2]).payload, crossOriginWs.raw[2]);
     expectExactRoles(JSON.parse(revealedWs.raw[2]).payload, authoritative);
 
     // Play the rest of the game to completion and verify the existing end-of-game reveal for both viewers.
@@ -213,13 +307,9 @@ describe("spectator role visibility HTTP and WebSocket boundaries", () => {
     expectExactRoles(JSON.parse(hiddenWs.raw.at(-1)!).payload, finalGame);
     expectExactRoles(JSON.parse(revealedWs.raw.at(-1)!).payload, finalGame);
 
-    // Unrevealed snapshot API also reveals every role once the game finishes.
-    const endedRes = await SELF.fetch(`https://example.test/api/games/${id}`, { headers: AUTH });
-    expect(endedRes.status).toBe(200);
-    expectExactRoles((await endedRes.json() as Snapshot).game, finalGame);
-
     hiddenWs.ws.close();
     explicitHiddenWs.ws.close();
+    crossOriginWs.ws.close();
     revealedWs.ws.close();
   });
 
@@ -241,79 +331,144 @@ describe("spectator role visibility HTTP and WebSocket boundaries", () => {
     expectNoRoles(JSON.parse(legacy.raw[1]).payload, legacy.raw[1]);
     legacy.ws.close();
   });
-
-  it("gates hidden roles in the game page loader until explicitly revealed and preserves end-of-game reveal", async () => {
-    const { room, id } = await startLiveGame();
-    const authoritative = await readGame(room);
-    await stubVillageWin(room, "loader-secret-rationale");
-    await runDurableObjectAlarm(room);
-
-    // Default and hidden loader responses omit hidden roles.
-    for (const path of [`/games/${id}`, `/games/${id}?roles=hidden`, `/games/${id}?roles=true`]) {
-      const page = await loadGamePage(path, id);
-      expect(page.kind).toBe("live");
-      if (page.kind !== "live") throw new Error("expected live");
-      expectNoRoles(page.snapshot.game, JSON.stringify(page));
-      expect(JSON.stringify(page)).not.toContain("loader-secret-rationale");
-    }
-
-    // Explicit reveal loader response includes every role and still omits private reasoning.
-    const revealedPage = await loadGamePage(`/games/${id}?roles=shown`, id);
-    expect(revealedPage.kind).toBe("live");
-    if (revealedPage.kind !== "live") throw new Error("expected live");
-    expectExactRoles(revealedPage.snapshot.game, authoritative);
-    expect(JSON.stringify(revealedPage)).not.toContain("loader-secret-rationale");
-
-    // End-of-game reveal still returns the full record with every role without ?roles=shown.
-    await playToFinish(room, "loader-secret-rationale");
-    const endedPage = await loadGamePage(`/games/${id}`, id);
-    expect(endedPage.kind).toBe("record");
-    if (endedPage.kind !== "record") throw new Error("expected record");
-    expect(endedPage.record.players.map(p => [p.seat, p.role])).toEqual(authoritative.players.map(p => [p.id, p.role]));
-  });
 });
 
-describe("spectator role visibility UI state and rendering", () => {
-  it("switches from hidden to shown, stays shown across unrevealed live updates, hides visually on switch-back, and always reveals at game end", () => {
+describe("spectator role visibility UI interaction and rendering", () => {
+  it("clicks Shown to trigger the explicit reveal request and render roles, then clicks Hidden to hide them visually with the prior-disclosure notice", async () => {
+    const { room, id } = await startLiveGame();
+    const authoritative = await readGame(room);
+    await stubVillageWin(room, "interaction-secret-rationale");
+    const cookie = await cookieHeader();
+
+    // Load the live page just as a signed-in browser does (even with ?roles=shown in the URL).
+    const page = await loadGamePage(`/games/${id}?roles=shown`, id);
+    expect(page.kind).toBe("live");
+    if (page.kind !== "live") throw new Error("expected live");
+
+    let game = page.snapshot.game;
+    let connection: "connecting" | "live" | "reconnecting" | "closed" | "sign-in" = "live";
+    let visibility = initialRoleVisibility();
+    let loadingRoles = false;
+    let revealError: string | null = null;
+    const requests: { url: string; headers: Headers; cache?: RequestCache }[] = [];
+
+    const actions = createRoleRevealActions({
+      gameId: id,
+      getGameStatus: () => game.status,
+      getVisibility: () => visibility,
+      isLoading: () => loadingRoles,
+      setVisibility: update => { visibility = update(visibility); },
+      setLoadingRoles: loading => { loadingRoles = loading; },
+      setRevealError: error => { revealError = error; },
+      onSignIn: () => { connection = "sign-in"; },
+      onTerminalSnapshot: terminal => { game = terminal; },
+      fetcher: async (input, init) => {
+        const headers = new Headers(init?.headers);
+        requests.push({ url: input, headers: new Headers(headers), cache: init?.cache });
+        headers.set("Cookie", cookie.Cookie);
+        headers.set("Sec-Fetch-Mode", "cors");
+        headers.set("Sec-Fetch-Site", "same-origin");
+        return SELF.fetch(`https://example.test${input}`, { ...init, headers });
+      },
+    });
+
+    function renderView() {
+      const element = LiveGameView({
+        game,
+        connection,
+        visibility,
+        loadingRoles,
+        revealError,
+        onShowRoles: () => { void actions.showRoles(); },
+        onHideRoles: () => { actions.hideRoles(); },
+      });
+      const buttons = findButtons(element);
+      const html = renderToStaticMarkup(createElement(MemoryRouter, null, element));
+      return {
+        html,
+        hiddenButton: buttons.find(b => b.props.children === "Hidden")!,
+        shownButton: buttons.find(b => b.props.children === "Shown")!,
+      };
+    }
+
+    // 1. Initial live view: roles hidden, zero reveal requests made, no role names in HTML.
+    const initial = renderView();
+    expect(requests).toHaveLength(0);
+    expect(initial.hiddenButton.props["aria-pressed"]).toBe(true);
+    expect(initial.shownButton.props["aria-pressed"]).toBe(false);
+    expect(initial.html).toContain("Role hidden");
+    expect(initial.html).toContain("Hidden roles are not sent to your browser until you choose to show them.");
+    for (const role of ["Werewolf", "Seer", "Villager"]) expect(initial.html).not.toContain(role);
+
+    // 2. Click Shown button: sends explicit same-origin reveal request and renders every role.
+    initial.shownButton.props.onClick!();
+    await vi.waitFor(() => expect(visibility.showRoles).toBe(true));
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0].url).toBe(`/api/games/${id}?roles=shown`);
+    expect(requests[0].cache).toBe("no-store");
+    expect(requests[0].headers.get(ROLE_REVEAL_HEADER)).toBe("shown");
+    expect(requests[0].headers.get("Authorization")).toBeNull();
+
+    const shown = renderView();
+    expect(shown.hiddenButton.props["aria-pressed"]).toBe(false);
+    expect(shown.shownButton.props["aria-pressed"]).toBe(true);
+    expect(shown.html).not.toContain("Role hidden");
+    expect(shown.html).toContain("Roles are revealed in this browser. Switching back to Hidden hides them visually only.");
+    for (const player of authoritative.players) expect(shown.html).toContain(player.role);
+
+    // 3. Subsequent unrevealed live turn update keeps roles visible while in Shown mode.
+    await runDurableObjectAlarm(room);
+    const nextUnrevealed = (await room.getLiveSnapshot())!.game;
+    expectNoRoles(nextUnrevealed, JSON.stringify(nextUnrevealed));
+    game = nextUnrevealed;
+    const afterTurn = renderView();
+    expect(afterTurn.html).not.toContain("Role hidden");
+    for (const player of authoritative.players) expect(afterTurn.html).toContain(player.role);
+
+    // 4. Click Hidden button: hides roles visually and displays the prior-disclosure notice.
+    afterTurn.hiddenButton.props.onClick!();
+    const hiddenAgain = renderView();
+    expect(hiddenAgain.hiddenButton.props["aria-pressed"]).toBe(true);
+    expect(hiddenAgain.shownButton.props["aria-pressed"]).toBe(false);
+    expect(hiddenAgain.html).toContain("Role hidden");
+    expect(hiddenAgain.html).toContain("Roles are hidden visually only; roles already revealed to this browser cannot be made secret again.");
+    for (const role of ["Werewolf", "Seer", "Villager"]) expect(hiddenAgain.html).not.toContain(role);
+
+    // 5. Click Shown again: restores roles from browser state without a second network request.
+    hiddenAgain.shownButton.props.onClick!();
+    const reshown = renderView();
+    expect(requests).toHaveLength(1);
+    expect(reshown.shownButton.props["aria-pressed"]).toBe(true);
+    expect(reshown.html).not.toContain("Role hidden");
+    for (const player of authoritative.players) expect(reshown.html).toContain(player.role);
+  });
+
+  it("switches state cleanly and always reveals roles at game end regardless of prior toggle state", () => {
     const raw = createGame("ui-state", 1, 100, undefined, length => length - 1);
     const hiddenSnapshot = publicGame(raw);
     const revealedSnapshot = publicGame(raw, { revealRoles: true });
     const finishedSnapshot = publicGame({ ...raw, status: "finished", winner: "Village" });
 
-    // Starts hidden with no disclosed roles.
-    let state = initialRoleVisibility(hiddenSnapshot);
+    let state = initialRoleVisibility();
     expect(state).toEqual({ showRoles: false, hasRevealed: false, revealedRoles: null });
     expect(roleVisibilityNote(state)).toContain("not sent");
     for (const p of hiddenSnapshot.players) expect(visibleRole(hiddenSnapshot, state, p)).toBeNull();
 
-    // Explicit reveal shows every role and keeps showing them across subsequent unrevealed updates.
     const roles = extractRoles(revealedSnapshot)!;
-    expect(roles).not.toBeNull();
     state = applyRevealedRoles(roles);
     expect(state.showRoles).toBe(true);
     expect(state.hasRevealed).toBe(true);
-    expect(roleVisibilityNote(state)).toContain("visually only");
-    for (const p of hiddenSnapshot.players) {
-      expect(visibleRole(hiddenSnapshot, state, p)).toBe(raw.players.find(r => r.id === p.id)!.role);
-    }
 
-    // Switching back hides roles visually and clearly states prior data cannot be made secret again.
     state = hideRolesVisually(state);
     expect(state.showRoles).toBe(false);
     expect(state.hasRevealed).toBe(true);
-    expect(roleVisibilityNote(state)).toContain("visually only");
     expect(roleVisibilityNote(state)).toContain("cannot be made secret again");
-    for (const p of hiddenSnapshot.players) expect(visibleRole(hiddenSnapshot, state, p)).toBeNull();
 
-    // Switching back to shown reuses the already-revealed roles.
     state = showCachedRoles(state);
     expect(state.showRoles).toBe(true);
-    for (const p of hiddenSnapshot.players) {
-      expect(visibleRole(hiddenSnapshot, state, p)).toBe(raw.players.find(r => r.id === p.id)!.role);
-    }
 
-    // End-of-game reveal always displays roles even when toggled back to hidden or never revealed.
-    const neverRevealed = initialRoleVisibility(hiddenSnapshot);
+    const neverRevealed = initialRoleVisibility();
     const hiddenAfterReveal = hideRolesVisually(state);
     for (const s of [neverRevealed, hiddenAfterReveal]) {
       for (const p of finishedSnapshot.players) {
@@ -322,7 +477,7 @@ describe("spectator role visibility UI state and rendering", () => {
     }
   });
 
-  it("renders the live visibility control without leaking roles when hidden and displays roles when explicitly revealed", async () => {
+  it("renders GamePage SSR redacted while running and reveals all roles without the live toggle once finished", async () => {
     const raw = createGame("00000000-0000-4000-8000-000000000028", 1, 100, undefined, length => length - 1);
 
     const hiddenHtml = await renderLiveGameHtml({ seq: 1, game: publicGame(raw) });
@@ -332,14 +487,6 @@ describe("spectator role visibility UI state and rendering", () => {
     expect(hiddenHtml).toContain("Hidden roles are not sent to your browser until you choose to show them.");
     for (const role of ["Werewolf", "Seer", "Villager"]) {
       expect(hiddenHtml).not.toContain(role);
-    }
-
-    const revealedHtml = await renderLiveGameHtml({ seq: 1, game: publicGame(raw, { revealRoles: true }) });
-    expect(revealedHtml).toContain("Spectator role visibility");
-    expect(revealedHtml).not.toContain("Role hidden");
-    expect(revealedHtml).toContain("Roles are revealed in this browser. Switching back to Hidden hides them visually only.");
-    for (const role of ["Werewolf", "Seer", "Villager"]) {
-      expect(revealedHtml).toContain(role);
     }
 
     const finishedHtml = await renderLiveGameHtml({ seq: 2, game: publicGame({ ...raw, status: "finished", winner: "Village" }) });
