@@ -7,6 +7,11 @@ export function liveRoom(env: Env, id: string) {
 }
 export function validGameId(id: string) { return UUID.test(id); }
 
+/** Explicit opt-in query parameter for live spectator role reveal. Fails closed to hidden. */
+export function wantsRevealedRoles(url: URL): boolean {
+  return url.searchParams.get("roles") === "shown";
+}
+
 /** Called only after the access gate, in both production and the test entry. */
 export async function handleGameRequest(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
@@ -39,7 +44,7 @@ export async function handleGameRequest(request: Request, env: Env): Promise<Res
   if (validGameId(parts[0]) && request.method === "GET") {
     const room = liveRoom(env, parts[0]);
     if (parts.length === 1) {
-      const snapshot = await room.getLiveSnapshot();
+      const snapshot = await room.getLiveSnapshot({ revealRoles: wantsRevealedRoles(url) });
       return snapshot ? Response.json(snapshot, { headers: { "Cache-Control": "no-store" } }) : notFound();
     }
     if (parts.length === 2 && parts[1] === "ws") return room.fetch(request);

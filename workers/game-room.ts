@@ -4,8 +4,9 @@ import { keyFingerprint } from "../app/access.server";
 import { callLlm, type LlmResult } from "./llm/client";
 import { buildTurnRequest } from "./spike/story";
 import { LiveGame, type BatchView, type LiveStartResult, type Snapshot } from "./game/runtime";
-import { parseSpendLimit } from "./game/engine";
+import { parseSpendLimit, type PublicGame, type Role } from "./game/engine";
 import type { GameRecord } from "./game/record";
+import { wantsRevealedRoles } from "./game/routes";
 import { parseSetup, type GameSetup } from "./game/setup";
 
 /** Loop limits. Mutable only so tests can shrink the waits. */
@@ -82,7 +83,7 @@ export const KEY_ROTATED_CLOSE_CODE = 4001;
 /** Close code for a viewer socket past `tuning.maxSocketAgeMs`; the viewer reconnects. */
 export const SOCKET_EXPIRED_CLOSE_CODE = 4002;
 
-type SocketAttachment = { keyFingerprint: string; openedAt: number };
+type SocketAttachment = { keyFingerprint: string; openedAt: number; revealRoles?: boolean };
 
 /**
  * One game per instance. All game state lives in SQLite; each alarm runs at
@@ -178,9 +179,9 @@ export class GameRoom extends DurableObject<Env> {
     await this.liveGame.cancel();
   }
 
-  async getLiveSnapshot(): Promise<Snapshot | null> {
+  async getLiveSnapshot(options?: { revealRoles?: boolean }): Promise<Snapshot | null> {
     await this.liveGame.touch();
-    return this.liveGame.snapshot();
+    return this.liveGame.snapshot(options);
   }
 
   /** Full record with private reasoning, for the gated record page. Null while running. */
@@ -200,15 +201,19 @@ export class GameRoom extends DurableObject<Env> {
     }
     if (!this.readGame() && !this.liveGame.read()) return new Response("Not found", { status: 404 });
 
-    const after = Number(new URL(request.url).searchParams.get("after"));
+    const url = new URL(request.url);
+    const after = Number(url.searchParams.get("after"));
+    const revealRoles = wantsRevealedRoles(url);
     const { 0: client, 1: server } = new WebSocketPair();
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({
       keyFingerprint: this.keyFingerprint,
       openedAt: Date.now(),
+      revealRoles,
     } satisfies SocketAttachment);
+    const roles = revealRoles ? this.liveRoles() : null;
     for (const event of this.eventsAfter(Number.isSafeInteger(after) ? after : 0)) {
-      server.send(JSON.stringify(event));
+      server.send(JSON.stringify(roles ? withRoles(event, roles) : event));
     }
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -399,15 +404,25 @@ export class GameRoom extends DurableObject<Env> {
   }
 
   private broadcast(events: GameEvent[]): void {
-    for (const ws of this.liveSockets()) {
+    const sockets = this.liveSockets();
+    if (!sockets.length) return;
+    let roles: Map<string, Role> | null | undefined;
+    for (const ws of sockets) {
+      const revealRoles = (ws.deserializeAttachment() as SocketAttachment | null)?.revealRoles === true;
+      if (revealRoles && roles === undefined) roles = this.liveRoles();
       for (const event of events) {
         try {
-          ws.send(JSON.stringify(event));
+          ws.send(JSON.stringify(revealRoles && roles ? withRoles(event, roles) : event));
         } catch {
           // A dead socket reconnects and replays from its last seq.
         }
       }
     }
+  }
+
+  private liveRoles(): Map<string, Role> | null {
+    const game = this.liveGame.read();
+    return game ? new Map(game.players.map(p => [p.id, p.role])) : null;
   }
 
   /**
@@ -532,6 +547,24 @@ function toEvent(row: EventRow): GameEvent {
     type: row.type as GameEvent["type"],
     payload: JSON.parse(row.payload),
     createdAt: row.created_at,
+  };
+}
+
+/** Projects authoritative roles onto a live-game event for a socket that opted in. */
+function withRoles(event: GameEvent, roles: Map<string, Role>): GameEvent {
+  if (!event.payload || typeof event.payload !== "object" || !Array.isArray((event.payload as { players?: unknown }).players)) {
+    return event;
+  }
+  const payload = event.payload as PublicGame;
+  return {
+    ...event,
+    payload: {
+      ...payload,
+      players: payload.players.map(p => {
+        const role = roles.get(p.id);
+        return role ? { ...p, role } : p;
+      }),
+    },
   };
 }
 

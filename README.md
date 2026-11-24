@@ -114,6 +114,8 @@ Games run one saved model attempt per Durable Object alarm and stop after 45 min
 
 Agent requests include public history and that agent's own private information only. Snapshot APIs and WebSockets carry the public projection; private model prompts, investigations and rationale never leave the room while a game runs.
 
+**Spectator role visibility (S-04).** Live viewing defaults to hidden roles: before a spectator opts in, hidden roles are omitted from the page loader, snapshot responses, and WebSocket events. Choosing **Shown** on the live page explicitly fetches `/api/games/<uuid>?roles=shown` (and streams with `?roles=shown` on reconnect while shown) so the spectator can follow bluffs without disclosing private rationale, investigations, or night votes. Switching back to **Hidden** hides roles visually only; data already sent to a browser cannot be made secret again. Completion still reveals every role automatically.
+
 **Game record (S-03).** When a game finishes or aborts, `/games/<uuid>` turns into its record: every role, and one timeline with each agent's private rationale beside its speech and each individual vote, plus night investigations and kills marked *Private*. Every model gives the same kind of rationale: the short private summary each move's JSON contract requires (native model reasoning is disabled). The room writes the record to the [D1 archive](#database) in one idempotent batch on its alarm. If D1 fails it retries with backoff (30 s, ×4, capped at 1 h, forever), and `wrangler tail` shows `archive_failed` / `game_archived`. Until the write lands, the page renders the same record from the room with an **Archiving…** badge. Rooms that ended before archiving existed queue themselves when next opened. Home lists the 20 most recently archived games; filtering is S-10.
 
 Script API (requires the same bearer key as the rest of the app):
@@ -126,8 +128,9 @@ curl -X POST -H "Authorization: Bearer $ACCESS_KEY" \
 # {"gameId":"…","viewerUrl":"/games/…"}
 
 curl -H "Authorization: Bearer $ACCESS_KEY" "$URL/api/games/<uuid>"
-# {"seq":…, "game":{…public state…}}
-# Viewer WebSocket: /api/games/<uuid>/ws?after=<last-seq>
+# {"seq":…, "game":{…public state, roles hidden while running…}}
+# Append ?roles=shown to explicitly reveal roles while running.
+# Viewer WebSocket: /api/games/<uuid>/ws?after=<last-seq>[&roles=shown]
 ```
 
 Start requests are idempotent by UUID; changing settings for the same UUID returns 409. New real-game rooms use a separate name prefix inside the existing `GAME_ROOM` binding. Existing spike rooms and APIs retain their schema and behavior. New real-game tables are additive; see [Rollback](#rollback) for migration constraints.
