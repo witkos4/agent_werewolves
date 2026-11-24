@@ -169,9 +169,12 @@ export default function Home({ loaderData, actionData }: Route.ComponentProps) {
       </p>
       <StartForm key={formKey} loaderData={loaderData} actionData={actionData} pending={pending} />
       <section aria-label="Recent games">
-        <div className="mb-3 flex items-baseline justify-between">
+        <div className="mb-3 flex items-baseline justify-between gap-4">
           <h2 className="text-lg font-semibold">Recent games</h2>
-          <Link to="/metrics" className="text-sm font-semibold hover:underline">Metrics →</Link>
+          <div className="flex items-center gap-4 text-sm font-semibold">
+            <Link to="/archive" className="hover:underline">Browse archive →</Link>
+            <Link to="/metrics" className="hover:underline">Metrics →</Link>
+          </div>
         </div>
         {loaderData.recent === null ? <p className="text-sm text-gray-600 dark:text-gray-400">Archive unavailable.</p>
           : loaderData.recent.length === 0 ? <p className="text-sm text-gray-600 dark:text-gray-400">No archived games yet.</p>
