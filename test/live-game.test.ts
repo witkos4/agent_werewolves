@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GameRoom } from "../workers/game-room";
 import { SOCKET_EXPIRED_CLOSE_CODE, tuning } from "../workers/game-room";
-import { attemptAllowance, type Game } from "../workers/game/engine";
+import { attemptAllowance, buildRequest, type Game } from "../workers/game/engine";
 import { liveRoom, handleGameRequest } from "../workers/game/routes";
 import { archiveTuning, liveTuning } from "../workers/game/runtime";
 import { setLlmCall, type LlmCall } from "../workers/llm/client";
@@ -202,6 +202,93 @@ describe("durable live games", () => {
     expect(next.charged).toBeCloseTo(first.reserved);
   });
 
+  it("keeps a failed attempt charged and settles a paid (cache-miss) retry to its reported cost", async () => {
+    const { room } = await start();
+    let attempt = 0;
+    setLlmCall(async request => {
+      if (++attempt === 1) return { ok: false, retryable: true, status: 503, reason: "http_503" };
+      const view = JSON.parse(JSON.parse(request.body).messages[1].content);
+      return ok(JSON.stringify({ target: view.allowedTargets[0], rationale: "decision" }), 0.0003);
+    });
+    await alarmNow(room);
+    const first = await inspect(room);
+    await runInDurableObject(room, (_i, s) => { s.storage.sql.exec("UPDATE live_turns SET last_attempt_at = ?", Date.now() - liveTuning.quietMs - 1); });
+    await alarmNow(room);
+    const next = await inspect(room);
+    expect(next.turns[0]).toMatchObject({ status: "done", attempts: 2, cost: 0.0003 });
+    expect(next.reserved).toBeCloseTo(first.reserved * 2, 10);
+    expect(next.charged).toBeCloseTo(first.reserved + 0.0003, 10);
+  });
+
+  it("aborts before a retry call when the retry allowance would pass the spend limit", async () => {
+    const { room } = await start(0.05);
+    const allowance = attemptAllowance(buildRequest((await inspect(room)).game));
+    const initialCharged = 0.05 - allowance * 1.5;
+    await runInDurableObject(room, (_i, s) => { s.storage.sql.exec("UPDATE live_game SET charged_usd = ?", initialCharged); });
+    setLlmCall(async () => { calls++; return { ok: false, retryable: true, status: null, reason: "timeout" }; });
+    await alarmNow(room);
+    expect(calls).toBe(1);
+    const afterFirst = await inspect(room);
+    expect(afterFirst.charged).toBeCloseTo(initialCharged + allowance, 10);
+    expect(afterFirst.charged).toBeLessThanOrEqual(0.05);
+    await runInDurableObject(room, (_i, s) => { s.storage.sql.exec("UPDATE live_turns SET last_attempt_at = ?", Date.now() - liveTuning.quietMs - 1); });
+    await alarmNow(room);
+    const afterRetryCheck = await inspect(room);
+    expect(calls).toBe(1);
+    expect(afterRetryCheck.game).toMatchObject({ status: "aborted", abortReason: "spend_limit" });
+    expect(afterRetryCheck.charged).toBeCloseTo(initialCharged + allowance, 10);
+    expect(afterRetryCheck.charged).toBeLessThanOrEqual(0.05);
+  });
+
+  it("keeps the full allowance charged on an invalid move or an in-flight cancellation", async () => {
+    const invalid = await start();
+    await alarmNow(invalid.room);
+    const storedInvalid = await inspect(invalid.room);
+    expect(storedInvalid.game).toMatchObject({ status: "aborted", abortReason: "invalid_model_response" });
+    expect(storedInvalid.charged).toBeCloseTo(storedInvalid.reserved, 10);
+    expect(storedInvalid.charged).toBeGreaterThan(0);
+
+    liveTuning.timeoutMs = 5_000;
+    const cancelled = await start();
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    setLlmCall(async request => {
+      await gate;
+      const view = JSON.parse(JSON.parse(request.body).messages[1].content);
+      return ok(JSON.stringify({ target: view.allowedTargets[0], rationale: "late" }), 0.0001);
+    });
+    const inFlight = alarmNow(cancelled.room);
+    await vi.waitFor(async () => expect((await inspect(cancelled.room)).turns).toHaveLength(1));
+    await cancelled.room.cancelLive();
+    release();
+    await inFlight;
+    const storedCancelled = await inspect(cancelled.room);
+    expect(storedCancelled.game).toMatchObject({ status: "aborted", abortReason: "cancelled" });
+    expect(storedCancelled.turns[0]).toMatchObject({ status: "pending", attempts: 1 });
+    expect(storedCancelled.charged).toBeCloseTo(storedCancelled.reserved, 10);
+  });
+
+  it("keeps the reserved charge without corrupting the ledger if allowance_usd is null during settlement", async () => {
+    liveTuning.timeoutMs = 5_000;
+    const { room } = await start();
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    setLlmCall(async request => {
+      await gate;
+      const view = JSON.parse(JSON.parse(request.body).messages[1].content);
+      return ok(JSON.stringify({ target: view.allowedTargets[0], rationale: "decision" }), 0.0001);
+    });
+    const inFlight = alarmNow(room);
+    await vi.waitFor(async () => expect((await inspect(room)).turns).toHaveLength(1));
+    await runInDurableObject(room, (_i, s) => { s.storage.sql.exec("UPDATE live_turns SET allowance_usd = NULL WHERE turn_no = 1"); });
+    release();
+    await inFlight;
+    const stored = await inspect(room);
+    expect(stored.game.turn).toBe(2);
+    expect(stored.turns[0]).toMatchObject({ status: "done", cost: 0.0001 });
+    expect(stored.charged).toBeCloseTo(stored.reserved, 10);
+  });
+
   it("upgrades a pre-ledger room in place, seeding its ledger from its gross reservations", async () => {
     const { room } = await start();
     await runInDurableObject(room, (_i, s) => {
@@ -261,7 +348,16 @@ describe("durable live games", () => {
   it("fails closed on unavailable or excessive pricing for any seated model", async () => {
     const seated = MODELS[2].id;
     const setup = { seats: DEFAULT_SETUP.seats.map(s => ({ ...s, model: seated })), pool: [] };
-    for (const [response, error] of [[() => new Response("outage", { status: 503 }), "safe model pricing"], [() => catalog({ overpriced: seated }), `pricing for ${seated}`]] as const) {
+    const withPricing = (pricing: Record<string, string>) => () => Response.json({
+      data: MODELS.map(m => ({ id: m.id, pricing: m.id === seated ? pricing : { prompt: "0.00000025", completion: "0.0000015" } })),
+    });
+    for (const [response, error] of [
+      [() => new Response("outage", { status: 503 }), "safe model pricing"],
+      [() => catalog({ overpriced: seated }), `pricing for ${seated}`],
+      [withPricing({ prompt: "0.00000025", completion: "0.0000015", request: "0.001" }), `pricing for ${seated}`],
+      [withPricing({ prompt: "0.00000025", completion: "0.0000015", internal_reasoning: "0.00001" }), `pricing for ${seated}`],
+      [withPricing({ prompt: "0.00000025", completion: "0.0000015", internal_reasoning: "-1" }), `pricing for ${seated}`],
+    ] as const) {
       vi.mocked(fetch).mockImplementationOnce(async () => response());
       const id = crypto.randomUUID(), room = liveRoom(env, id);
       expect(await room.startLive(id, 1, setup)).toMatchObject({ ok: false, status: 503, error: expect.stringContaining(error) });
