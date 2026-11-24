@@ -1,7 +1,7 @@
 # Spend Limit and Estimate — Verification
 
 Date: 2026-11-24 (updated from 2026-11-14 for issue #32).
-Status: **phases 1–3 locally verified** (automated suite, local D1 migrations, live browser estimate recomputation on synthetic D1, and static/test review of spend accounting and allowance bounds). **S-07 is not complete**: a real-provider dev budget abort (`3.5`) and all Phase 4 production checks (`4.1`–`4.4`) remain pending separate authorization for paid provider calls and production deployment.
+Status: **phases 1–3 locally verified** (automated suite, local D1 migrations, live browser estimate recomputation on synthetic D1, and static/test review of spend accounting and allowance bounds). **S-07 is not complete**: the manual dev budget-abort drill (`3.5`, runnable locally with a stub or real key per `plan.md`) and all Phase 4 production billing/deployment checks (`4.1`–`4.4`, which require separate authorization for paid provider calls and production deployment) remain pending.
 
 No paid provider calls, production deployments, real secrets, or real customer data were used in this verification.
 
@@ -75,7 +75,11 @@ All synthetic D1 rows and `.dev.vars` were deleted after the browser check.
 - **Conservative retry and failure accounting (`workers/game/runtime.ts:259-312`, `workers/llm/openrouter.ts:32-72`)**:
   - Timeouts, network errors, retryable HTTP statuses (`408`, `429`, `5xx`), malformed JSON bodies, empty replies, non-retryable errors, `validateMove` failures, `cancel()` mid-flight, `time_limit` mid-flight, and mid-call DO evictions/crashes all skip settlement and leave the full `allowance` charged in `charged_usd`.
   - Each retry checks `charged_usd + allowance <= effectiveLimit(game)` and reserves a new `allowance`. When a later attempt succeeds, settlement adjusts `charged_usd` by `result.cost - allowance_usd` for **only the succeeding attempt** (`live_turns.allowance_usd`). Earlier failed/timed-out attempts remain charged at full `allowance`.
-  - Therefore, whether a retry hits OpenRouter's response cache (`cost: 0`, refunding only the retry's own allowance) or misses and is billed again (`cost: c2`, settling only the retry), `real_spend <= charged_usd <= spendLimitUsd` holds **under the assumption that every single provider call's billed cost is `<= attemptAllowance(body)`**.
+  - Therefore, whether a retry hits OpenRouter's response cache (`cost: 0`, refunding only the retry's own allowance) or misses and is billed again (`cost: c2`, settling only the retry), `real_spend <= charged_usd <= spendLimitUsd` holds **only if all three provider-contract conditions hold**:
+    1. For every **unsettled** attempt, `attemptAllowance(body)` (`workers/game/engine.ts:73-75`) bounds the provider's actual final bill.
+    2. For every **settled** attempt (`workers/game/runtime.ts:303-307`, `workers/llm/openrouter.ts:61-67`), the settled amount recorded (`usage.cost` on a MISS, or `$0` when `X-OpenRouter-Cache-Status: HIT`) covers the provider's final bill — including `$0` actual billing on a cache HIT and no unbilled/delayed surcharges missing from `usage.cost` (per [OpenRouter usage accounting](https://github.com/OpenRouterTeam/docs/blob/main/cookbook/administration/usage-accounting.mdx) and [OpenRouter response caching](https://openrouter.ai/blog/announcements/response-caching/)).
+    3. For every **settled** attempt, `result.cost <= allowance_usd` (so settlement never increases `charged_usd` above the pre-call checked `charged + allowance <= spendLimitUsd`).
+    None of these three provider-side conditions is proven by local mocks; end-to-end reconciliation against OpenRouter's activity log remains open in Phase 4.
 - **Unknown-cost handling (`workers/llm/openrouter.ts:66`, `workers/game/runtime.ts:305-307`)**: missing, `NaN`, non-finite, non-numeric, or negative `usage.cost` yields `cost: null`, which skips settlement and leaves the full `allowance` charged.
 
 ### Defects found and fixed during this review
@@ -90,7 +94,7 @@ These assumptions cannot be proven locally without real OpenRouter calls or prod
 1. **Provider enforcement of `max_price`, `max_tokens`, and `reasoning: { enabled: false }` (`workers/game/engine.ts:58-75,183-190`)**: `attemptAllowance(body)` assumes `(utf8Bytes(body) + 2048) * $0.50/1M + 256 * $2.00/1M` bounds every call. Mocks cannot prove that OpenRouter and every upstream provider for the six catalog models strictly enforce `provider.max_price` (`prompt: 0.5`, `completion: 2.0`), honor `max_tokens: 256` and `reasoning: { enabled: false }`, or keep total billed input tokens (including chat template and strict `json_schema` grammar/prompt overhead) within `utf8Bytes(body) + 2048`.
 2. **Unchecked OpenRouter pricing components (`workers/game/runtime.ts:37-45`, `workers/game/engine.ts:190`)**: `safePrices()` checks `prompt`, `completion`, `internal_reasoning`, and `request === 0`, and `provider.max_price` constrains only `prompt` and `completion`. Other OpenRouter pricing fields or surcharges (e.g., `input_cache_write` prompt-cache write premiums, routing/platform markups, or minimum per-call fees) are neither checked at start nor capped by `max_price`.
 3. **Start-time-only catalog check (`workers/game/runtime.ts:115`)**: `unsafePricing()` runs once at game start. If a model's `request` fee or `internal_reasoning` rate changes during a 45-minute game, subsequent turns rely solely on `provider.max_price` (`prompt`/`completion`).
-4. **Overshoot propagation if a call ever bills `> allowance` (`workers/game/runtime.ts:305-307`, `workers/batch-room.ts:197-199`)**: if a real provider ever reports `usage.cost > allowance`, settlement adds `result.cost - allowance > 0`, which accurately records the true spend and blocks further turns, but means `charged_usd` (and a batch's `settledUsd`) can exceed `spendLimitUsd` after that turn.
+4. **Overshoot propagation if a call ever bills `> allowance` (`workers/game/runtime.ts:305-307`, `workers/batch-room.ts:197-199`)**: if a real provider ever reports `usage.cost > allowance`, settlement adds `result.cost - allowance > 0`, which records the higher reported cost and can push `charged_usd` (and a batch's `settledUsd`) past `spendLimitUsd`. That blocks the next attempt only if the updated `charged_usd + nextAllowance > effectiveLimit(game)`; if headroom still remains under the limit, later turns continue until that pre-call check fails.
 5. **Cache-HIT and `$0`-MISS billing semantics (`workers/llm/openrouter.ts:61-67`)**:
    - `cacheHit ? 0 : ...` assumes `X-OpenRouter-Cache-Status: HIT` is always unbilled in production (verified on laptop curl in F-02 4.7, not yet proven inside a Cloudflare Durable Object).
    - On a cache MISS, `usage.cost === 0` is accepted as known `$0` and refunds the full allowance even though `safePrices()` requires `prompt > 0 && completion > 0` for all seated models; if OpenRouter ever returns `0` for delayed or unmetered billing on a MISS, the ledger would under-charge that turn.
@@ -99,11 +103,14 @@ These assumptions cannot be proven locally without real OpenRouter calls or prod
    - Historical per-turn cost averages committed `game_moves` across both finished and aborted games and excludes failed/retried attempts; early-aborted games have shorter transcripts, which can bias per-turn cost slightly downward.
    - `estimateCost` returns `minModelTurns`, which `app/routes/home.tsx` does not currently render, and unchecking every Model pool checkbox while seats are `random` uses `UPPER_BOUND_TURN_USD` without naming missing models (start is still rejected by `parseSetup`).
 
-## Remaining blockers (Phase 4 / real-provider verification)
+## Remaining blockers (manual 3.5 drill and Phase 4)
 
-Paid provider calls and production deployment require separate owner authorization. Still pending before S-07 can be marked complete:
+Still pending before S-07 can be marked complete:
 
-- **3.5 (remaining part)**: live dev/production budget abort against a real provider key.
+- **3.5 (remaining part — local stub option available)**: manual dev budget-abort drill starting a `$0.05`-limit game from the dev form and observing the spend-limit abort message in the viewer (`plan.md:176` allows either a local stubbed provider or a real key; the stubbed budget-abort and record-page behavior are already covered by `test/live-game.test.ts` and `test/record-routes.test.ts`).
+
+The following real-billing and production verification steps require separate owner authorization for paid provider calls and production deployment:
+
 - **4.1**: CI applying migration `0004_spend_limit.sql`, deploying to production, and `/healthz` passing.
 - **4.2**: an 8-seat production game at `$0.05` aborting with `spend_limit`, with OpenRouter Activity log total `<= archived charged_usd <= 0.05`.
 - **4.3**: an 8-seat production game at the `$1.00` default limit finishing, comparing `total_cost_usd` against `charged_usd` and the pre-run estimate.

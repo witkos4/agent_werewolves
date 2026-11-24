@@ -250,15 +250,17 @@ describe("durable live games", () => {
 
     liveTuning.timeoutMs = 5_000;
     const cancelled = await start();
+    let entered = false;
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
     setLlmCall(async request => {
+      entered = true;
       await gate;
       const view = JSON.parse(JSON.parse(request.body).messages[1].content);
       return ok(JSON.stringify({ target: view.allowedTargets[0], rationale: "late" }), 0.0001);
     });
     const inFlight = alarmNow(cancelled.room);
-    await vi.waitFor(async () => expect((await inspect(cancelled.room)).turns).toHaveLength(1));
+    await vi.waitFor(() => expect(entered).toBe(true));
     await cancelled.room.cancelLive();
     release();
     await inFlight;
@@ -271,15 +273,17 @@ describe("durable live games", () => {
   it("keeps the reserved charge without corrupting the ledger if allowance_usd is null during settlement", async () => {
     liveTuning.timeoutMs = 5_000;
     const { room } = await start();
+    let entered = false;
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
     setLlmCall(async request => {
+      entered = true;
       await gate;
       const view = JSON.parse(JSON.parse(request.body).messages[1].content);
       return ok(JSON.stringify({ target: view.allowedTargets[0], rationale: "decision" }), 0.0001);
     });
     const inFlight = alarmNow(room);
-    await vi.waitFor(async () => expect((await inspect(room)).turns).toHaveLength(1));
+    await vi.waitFor(() => expect(entered).toBe(true));
     await runInDurableObject(room, (_i, s) => { s.storage.sql.exec("UPDATE live_turns SET allowance_usd = NULL WHERE turn_no = 1"); });
     release();
     await inFlight;
