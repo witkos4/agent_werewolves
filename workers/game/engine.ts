@@ -99,6 +99,9 @@ export function randomIndex(length: number): number {
 const NAMES = ["Ada", "Bram", "Cora", "Dax", "Esme", "Finn", "Gwen", "Hugo", "Iris"];
 
 export function createGame(id: string, discussionPasses: number, now: number, setup: GameSetup = DEFAULT_SETUP, pick = randomIndex, spendLimitUsd = SAFETY_USD, batchId?: string): Game {
+  if (!Number.isInteger(setup.seats.length) || setup.seats.length < 3 || setup.seats.length > NAMES.length) {
+    throw new RangeError(`Seat count must be an integer between 3 and ${NAMES.length}.`);
+  }
   // Seats resolve before roles shuffle, so a seat's model never selects its role.
   // A batch rotation setup forces every seat's role instead (validated by parseSetup).
   const seats = resolveSeats(setup, pick);

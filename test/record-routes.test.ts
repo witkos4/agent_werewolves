@@ -1,14 +1,16 @@
-import { runDurableObjectAlarm } from "cloudflare:test";
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { RouterContextProvider } from "react-router";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createStaticHandler, createStaticRouter, RouterContextProvider, StaticRouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cloudflareContext } from "../app/cloudflare-context";
 import { loader as gameLoader } from "../app/routes/games.$gameId";
-import { action as homeAction, loader as homeLoader } from "../app/routes/home";
+import Home, { action as homeAction, loader as homeLoader } from "../app/routes/home";
 import { MODELS, PERSONAS } from "../workers/game/catalog";
 import { liveRoom } from "../workers/game/routes";
 import type { Game } from "../workers/game/engine";
-import { runInDurableObject } from "cloudflare:test";
+import { roleCounts, SEAT_COUNTS } from "../workers/game/setup";
 import { archiveTuning, liveTuning } from "../workers/game/runtime";
 import { setLlmCall, type LlmCall } from "../workers/llm/client";
 import { catalog, ok, playToFinish, startLiveGame, stubVillageWin } from "./live-helpers";
@@ -149,10 +151,130 @@ describe("home recent games", () => {
     }
   });
 
-  it("gives the start form the limit bounds and the estimate inputs", async () => {
-    const { data } = await homeLoader(args("/")) as unknown as { data: { spendLimit: { default: number; min: number; max: number }; estimateInputs: { models: unknown[]; shapes: unknown[] } } };
+  it("gives the start form the table-size bounds, limit bounds and estimate inputs", async () => {
+    const { data } = await homeLoader(args("/")) as unknown as {
+      data: {
+        tableSize: { default: number; min: number; max: number };
+        spendLimit: { default: number; min: number; max: number };
+        estimateInputs: { models: unknown[]; shapes: unknown[] };
+      };
+    };
+    expect(data.tableSize).toEqual({ default: 8, min: 5, max: 9 });
     expect(data.spendLimit).toEqual({ default: 1, min: 0.05, max: 5 });
     expect(data.estimateInputs).toMatchObject({ models: expect.any(Array), shapes: expect.any(Array) });
+  });
+
+  it("renders table size selection (5–9 seats, default 8) with composition summary and echoed seat counts", async () => {
+    const loaderData = (await homeLoader(args("/")) as unknown as { data: Awaited<ReturnType<typeof homeLoader>>["data"] }).data;
+    const renderHome = async (actionData?: Awaited<ReturnType<typeof homeAction>>["data"]) => {
+      const routes = [{ path: "/", Component: () => createElement(Home, { loaderData, actionData } as never) }];
+      const handler = createStaticHandler(routes);
+      const context = await handler.query(new Request("https://example.test/"));
+      if (context instanceof Response) throw new Error(`Unexpected response: ${context.status}`);
+      const router = createStaticRouter(handler.dataRoutes, context);
+      return renderToStaticMarkup(createElement(StaticRouterProvider, { router, context }));
+    };
+
+    const defaultHtml = await renderHome();
+    expect(defaultHtml).toContain('name="seatCount"');
+    for (const count of SEAT_COUNTS) expect(defaultHtml).toContain(`${count} seats`);
+    expect(defaultHtml).toContain("Fixed composition: 2 Werewolves, 1 Seer, 5 Villagers.");
+    expect(defaultHtml).toContain("Seat 8 model");
+    expect(defaultHtml).not.toContain("Seat 9 model");
+
+    const fiveSeatErrorHtml = await renderHome({
+      error: "Pick at least one model for the pool.",
+      requestId: crypto.randomUUID(),
+      seatCount: "5",
+      setup: { seats: Array.from({ length: 5 }, () => ({ model: "random", persona: "random" })), pool: [] },
+      discussionPasses: 1,
+      spendLimit: "1.00",
+    });
+    expect(fiveSeatErrorHtml).toContain("Fixed composition: 1 Werewolf, 1 Seer, 3 Villagers.");
+    expect(fiveSeatErrorHtml).toContain("Seat 5 model");
+    expect(fiveSeatErrorHtml).not.toContain("Seat 6 model");
+
+    const nineSeatErrorHtml = await renderHome({
+      error: "Pick at least one model for the pool.",
+      requestId: crypto.randomUUID(),
+      seatCount: "9",
+      setup: { seats: Array.from({ length: 9 }, () => ({ model: "random", persona: "random" })), pool: [] },
+      discussionPasses: 1,
+      spendLimit: "1.00",
+    });
+    expect(nineSeatErrorHtml).toContain("Fixed composition: 3 Werewolves, 1 Seer, 5 Villagers.");
+    expect(nineSeatErrorHtml).toContain("Seat 9 model");
+  });
+
+  it("starts games from the home form for every supported seat count 5–9 and rejects invalid counts", async () => {
+    const post = (fields: [string, string][]) => {
+      const form = new FormData();
+      for (const [k, v] of fields) form.append(k, v);
+      const request = new Request("https://example.test/?index", { method: "POST", body: form });
+      const context = new RouterContextProvider();
+      context.set(cloudflareContext, { env, ctx: {} as ExecutionContext });
+      return homeAction({ request, context, params: {}, url: new URL(request.url), pattern: "/" } as never);
+    };
+
+    for (const count of SEAT_COUNTS) {
+      const id = crypto.randomUUID();
+      const chosenModels = Array.from({ length: count - 1 }, (_, i) => MODELS[i % 5].id);
+      const seats: [string, string][] = [...chosenModels, "random"].flatMap((model, i) => [
+        ["seatModel", model],
+        ["seatPersona", i === 0 ? "analyst" : "random"],
+      ] as [string, string][]);
+      const redirect = await post([["requestId", id], ["seatCount", String(count)], ["discussionPasses", "1"], ...seats, ["pool", MODELS[5].id]]).catch(r => r as Response);
+      expect((redirect as Response).headers.get("Location")).toBe(`/games/${id}`);
+      const game = await runInDurableObject(liveRoom(env, id), (_i, st) => JSON.parse(st.storage.sql.exec<{ state: string }>("SELECT state FROM live_game").one().state) as Game);
+      const expected = roleCounts(count);
+      expect(game.players).toHaveLength(count);
+      expect(game.players.filter(p => p.role === "Werewolf")).toHaveLength(expected.wolves);
+      expect(game.players.filter(p => p.role === "Seer")).toHaveLength(expected.seer);
+      expect(game.players.filter(p => p.role === "Villager")).toHaveLength(expected.villagers);
+      expect(game.players.map(p => p.model)).toEqual([...chosenModels, MODELS[5].id]);
+      expect(game.players[0].persona).toBe("analyst");
+      expect(new Set(game.players.map(p => p.persona)).size).toBe(count);
+    }
+
+    // No-JS submission: changing seatCount without resizing the 8 rendered seat rows still honors seatCount.
+    const noJsId = crypto.randomUUID();
+    const eightSeats: [string, string][] = Array.from({ length: 8 }, (_, i) => [
+      ["seatModel", MODELS[i % MODELS.length].id],
+      ["seatPersona", PERSONAS[i].id],
+    ] as [string, string][]).flat();
+    const noJsRedirect = await post([["requestId", noJsId], ["seatCount", "5"], ["discussionPasses", "1"], ...eightSeats, ["pool", MODELS[0].id]]).catch(r => r as Response);
+    expect((noJsRedirect as Response).headers.get("Location")).toBe(`/games/${noJsId}`);
+    const noJsGame = await runInDurableObject(liveRoom(env, noJsId), (_i, st) => JSON.parse(st.storage.sql.exec<{ state: string }>("SELECT state FROM live_game").one().state) as Game);
+    expect(noJsGame.players).toHaveLength(5);
+    expect(noJsGame.players.map(p => p.persona)).toEqual(PERSONAS.slice(0, 5).map(p => p.id));
+
+    // Invalid seat counts are rejected server-side without creating a game.
+    for (const invalid of ["0", "4", "10", "-1", "6.5", "abc", ""]) {
+      const id = crypto.randomUUID();
+      const rejected = await post([["requestId", id], ["seatCount", invalid], ["discussionPasses", "1"], ...eightSeats, ["pool", MODELS[0].id]]) as unknown as {
+        data: { error: string };
+        init: { status: number };
+      };
+      expect(rejected.init.status).toBe(400);
+      expect(rejected.data.error).toBe("Configure between 5 and 9 seats.");
+      expect(await liveRoom(env, id).getLiveSnapshot()).toBeNull();
+    }
+
+    // Omitting seatCount with an out-of-range number of seat rows is also rejected.
+    for (const badRowCount of [4, 10]) {
+      const id = crypto.randomUUID();
+      const rows: [string, string][] = Array.from({ length: badRowCount }, () => [
+        ["seatModel", MODELS[0].id],
+        ["seatPersona", "random"],
+      ] as [string, string][]).flat();
+      const rejected = await post([["requestId", id], ["discussionPasses", "1"], ...rows, ["pool", MODELS[0].id]]) as unknown as {
+        data: { error: string };
+        init: { status: number };
+      };
+      expect(rejected.init.status).toBe(400);
+      expect(rejected.data.error).toBe("Configure between 5 and 9 seats.");
+      expect(await liveRoom(env, id).getLiveSnapshot()).toBeNull();
+    }
   });
 
   it("shows each seat's model and personality while live and in the record, without personality prompts", async () => {

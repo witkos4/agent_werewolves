@@ -1,9 +1,16 @@
 import { MODELS, PERSONAS } from "./catalog";
 import type { Role } from "./engine";
 
+export const SEAT_COUNT_MIN = 5;
+export const SEAT_COUNT_MAX = 9;
 export const SEAT_COUNT = 8;
+export const SEAT_COUNTS = [5, 6, 7, 8, 9] as const;
 export const RANDOM = "random";
 const ROLES: readonly Role[] = ["Werewolf", "Seer", "Villager"];
+
+export function isValidSeatCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= SEAT_COUNT_MIN && value <= SEAT_COUNT_MAX;
+}
 
 /**
  * A seat's requested model and personality: a catalog id, or `"random"`. A
@@ -14,20 +21,50 @@ export type SeatChoice = { model: string; persona: string; role?: Role };
 export type GameSetup = { seats: SeatChoice[]; pool: string[] };
 export type ResolvedSeat = { model: string; persona: string; role?: Role };
 
+/** Role counts under the balanced composition rule for a supported table size. */
+export function roleCounts(seats: number): { wolves: number; seer: number; villagers: number } {
+  if (!isValidSeatCount(seats)) {
+    throw new RangeError(`Seat count must be an integer between ${SEAT_COUNT_MIN} and ${SEAT_COUNT_MAX}.`);
+  }
+  const wolves = Math.floor(seats / 3);
+  return { wolves, seer: 1, villagers: seats - wolves - 1 };
+}
+
+/** Human-readable fixed role composition for a supported table size. */
+export function formatComposition(seats: number): string {
+  const { wolves, seer, villagers } = roleCounts(seats);
+  return `${wolves} ${wolves === 1 ? "Werewolf" : "Werewolves"}, ${seer} Seer, ${villagers} ${villagers === 1 ? "Villager" : "Villagers"}`;
+}
+
 /**
  * PRD composition rule: wolves are a third of the seats, rounded down, plus one
  * Seer; Villagers fill the rest. Listed before the shuffle as p1 wolf, p2 Seer,
  * then any other wolves, then Villagers.
  */
 export function rolesFor(seats: number): Role[] {
+  if (!Number.isInteger(seats) || seats < 3) {
+    throw new RangeError("Seat count must be an integer of at least 3.");
+  }
   const wolves = Math.floor(seats / 3);
   return ["Werewolf", "Seer", ...Array<Role>(wolves - 1).fill("Werewolf"), ...Array<Role>(seats - wolves - 1).fill("Villager")];
 }
 
-export const DEFAULT_SETUP: GameSetup = {
-  seats: Array.from({ length: SEAT_COUNT }, () => ({ model: RANDOM, persona: RANDOM })),
-  pool: MODELS.map(m => m.id),
-};
+export function defaultSetup(seats: number = SEAT_COUNT): GameSetup {
+  if (!isValidSeatCount(seats)) {
+    throw new RangeError(`Seat count must be an integer between ${SEAT_COUNT_MIN} and ${SEAT_COUNT_MAX}.`);
+  }
+  return {
+    seats: Array.from({ length: seats }, () => ({ model: RANDOM, persona: RANDOM })),
+    pool: MODELS.map(m => m.id),
+  };
+}
+
+export const DEFAULT_SETUP: GameSetup = defaultSetup(SEAT_COUNT);
+
+/** Resizes a seat list while preserving earlier selections and filling new seats as random. */
+export function resizeSeats(seats: readonly SeatChoice[], count: number): SeatChoice[] {
+  return Array.from({ length: count }, (_, i) => seats[i] ?? { model: RANDOM, persona: RANDOM });
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -43,7 +80,7 @@ export function parseSetup(value: unknown, { allowRoles = false }: { allowRoles?
   if (value === undefined) return structuredClone(DEFAULT_SETUP);
   if (!isObject(value) || Object.keys(value).some(k => k !== "seats" && k !== "pool")) return { error: "Setup must have seats and a model pool." };
   const { seats, pool } = value;
-  if (!Array.isArray(seats) || seats.length !== SEAT_COUNT) return { error: `Configure exactly ${SEAT_COUNT} seats.` };
+  if (!Array.isArray(seats) || !isValidSeatCount(seats.length)) return { error: `Configure between ${SEAT_COUNT_MIN} and ${SEAT_COUNT_MAX} seats.` };
   if (!Array.isArray(pool) || pool.some(id => typeof id !== "string")) return { error: "The model pool must be a list of models." };
   const modelIds = MODELS.map(m => m.id);
   const personaIds = PERSONAS.map(p => p.id);
@@ -90,15 +127,29 @@ export function resolveSeats(setup: GameSetup, pick: (length: number) => number)
   }));
 }
 
+/** Parses an untrusted form `seatCount` entry: `undefined` when omitted, integer when digits, `NaN` otherwise. */
+export function parseSeatCountField(value: FormDataEntryValue | null): number | undefined {
+  if (value === null) return undefined;
+  const trimmed = String(value).trim();
+  return /^\d+$/.test(trimmed) ? Number(trimmed) : NaN;
+}
+
 /**
- * Reads the home form's repeated `seatModel`/`seatPersona` selects and `pool`
- * checkboxes, in form order. Validation is left to `parseSetup`.
+ * Reads the home form's optional `seatCount`, repeated `seatModel`/`seatPersona`
+ * selects, and `pool` checkboxes, in form order. When a valid `seatCount` is
+ * present, the seat list is sized to it (supporting no-JS submissions too).
+ * Validation is left to `parseSetup` and the start route.
  */
-export function setupFromForm(form: FormData): { seats: SeatChoice[]; pool: string[] } {
+export function setupFromForm(form: FormData): GameSetup {
   const models = form.getAll("seatModel").map(String);
   const personas = form.getAll("seatPersona").map(String);
+  const rawSeats: SeatChoice[] = Array.from({ length: Math.max(models.length, personas.length) }, (_, i) => ({
+    model: models[i] ?? RANDOM,
+    persona: personas[i] ?? RANDOM,
+  }));
+  const seatCount = parseSeatCountField(form.get("seatCount"));
   return {
-    seats: models.map((model, i) => ({ model, persona: personas[i] ?? RANDOM })),
+    seats: isValidSeatCount(seatCount) ? resizeSeats(rawSeats, seatCount) : rawSeats,
     pool: form.getAll("pool").map(String),
   };
 }
