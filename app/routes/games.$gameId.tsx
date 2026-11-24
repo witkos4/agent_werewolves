@@ -1,6 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { data, isRouteErrorResponse, Link, useRevalidator } from "react-router";
 import { cloudflareContext } from "../cloudflare-context";
+import {
+  createRoleRevealActions,
+  initialRoleVisibility,
+  roleVisibilityNote,
+  visibleRole,
+  type RoleVisibilityState,
+} from "../spectator-roles";
 import { readArchivedRecord } from "../../workers/game/archive";
 import { liveRoom, validGameId } from "../../workers/game/routes";
 import type { PublicGame } from "../../workers/game/engine";
@@ -17,8 +24,10 @@ export function headers() { return { "Cache-Control": "no-store" }; }
 type PageData = { kind: "live"; snapshot: Snapshot } | { kind: "record"; record: GameRecord; archived: boolean };
 
 /**
- * A running game is the live viewer. A terminal game is its record, read from
- * the D1 archive, or from the room (marked "archiving") until the archive lands.
+ * A running game is the live viewer. Live page loads always keep hidden roles
+ * redacted regardless of URL query parameters; spectators must explicitly use
+ * the live Shown control to reveal roles. A terminal game is its record, read
+ * from the D1 archive, or from the room (marked "archiving") until it lands.
  */
 export async function loader({ params, context }: Route.LoaderArgs) {
   if (!validGameId(params.gameId)) throw new Response("Game not found", { status: 404 });
@@ -42,7 +51,9 @@ export async function loader({ params, context }: Route.LoaderArgs) {
 }
 
 export default function GamePage({ loaderData }: Route.ComponentProps) {
-  return loaderData.kind === "live" ? <LiveGame snapshot={loaderData.snapshot} /> : <GameRecordView record={loaderData.record} archived={loaderData.archived} />;
+  return loaderData.kind === "live"
+    ? <LiveGame key={loaderData.snapshot.game.id} snapshot={loaderData.snapshot} />
+    : <GameRecordView key={loaderData.record.id} record={loaderData.record} archived={loaderData.archived} />;
 }
 
 type Connection = "connecting" | "live" | "reconnecting" | "closed" | "sign-in";
@@ -51,6 +62,36 @@ function LiveGame({ snapshot: loaderData }: { snapshot: Snapshot }) {
   const revalidator = useRevalidator();
   const [game, setGame] = useState(loaderData.game);
   const [connection, setConnection] = useState<Connection>(loaderData.game.status === "running" ? "connecting" : "closed");
+  const [visibility, setVisibility] = useState(initialRoleVisibility);
+  const [loadingRoles, setLoadingRoles] = useState(false);
+  const [revealError, setRevealError] = useState<string | null>(null);
+  const gameStatusRef = useRef(game.status);
+  gameStatusRef.current = game.status;
+  const visibilityRef = useRef(visibility);
+  visibilityRef.current = visibility;
+  const loadingRolesRef = useRef(loadingRoles);
+  loadingRolesRef.current = loadingRoles;
+  const revalidatorRef = useRef(revalidator);
+  revalidatorRef.current = revalidator;
+  const roleActionsRef = useRef<ReturnType<typeof createRoleRevealActions> | null>(null);
+  if (!roleActionsRef.current) {
+    roleActionsRef.current = createRoleRevealActions({
+      gameId: loaderData.game.id,
+      getGameStatus: () => gameStatusRef.current,
+      getVisibility: () => visibilityRef.current,
+      isLoading: () => loadingRolesRef.current,
+      setVisibility,
+      setLoadingRoles,
+      setRevealError,
+      onSignIn: () => setConnection("sign-in"),
+      onTerminalSnapshot: terminal => {
+        setGame(terminal);
+        revalidatorRef.current.revalidate();
+      },
+    });
+  }
+
+  useEffect(() => () => { roleActionsRef.current?.abort(); }, []);
 
   useEffect(() => {
     setGame(loaderData.game);
@@ -68,7 +109,8 @@ function LiveGame({ snapshot: loaderData }: { snapshot: Snapshot }) {
     function connect() {
       if (stopped || ended) return;
       const scheme = location.protocol === "https:" ? "wss" : "ws";
-      const ws = new WebSocket(`${scheme}://${location.host}/api/games/${loaderData.game.id}/ws?after=${seq}`);
+      const rolesParam = visibilityRef.current.showRoles ? "&roles=shown" : "";
+      const ws = new WebSocket(`${scheme}://${location.host}/api/games/${loaderData.game.id}/ws?after=${seq}${rolesParam}`);
       socket = ws;
       ws.onopen = () => {
         receivedAt = performance.now();
@@ -119,6 +161,38 @@ function LiveGame({ snapshot: loaderData }: { snapshot: Snapshot }) {
     return () => { stopped = true; clearTimeout(retry); clearInterval(heartbeat); socket?.close(); };
   }, [loaderData]);
 
+  return (
+    <LiveGameView
+      game={game}
+      connection={connection}
+      visibility={visibility}
+      loadingRoles={loadingRoles}
+      revealError={revealError}
+      onShowRoles={() => { void roleActionsRef.current?.showRoles(); }}
+      onHideRoles={() => { roleActionsRef.current?.hideRoles(); }}
+    />
+  );
+}
+
+export type LiveGameViewProps = {
+  game: PublicGame;
+  connection: Connection;
+  visibility: RoleVisibilityState;
+  loadingRoles: boolean;
+  revealError: string | null;
+  onShowRoles: () => void;
+  onHideRoles: () => void;
+};
+
+export function LiveGameView({
+  game,
+  connection,
+  visibility,
+  loadingRoles,
+  revealError,
+  onShowRoles,
+  onHideRoles,
+}: LiveGameViewProps) {
   const night = game.phase === "investigate" || game.phase === "kill";
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-6 py-10">
@@ -133,12 +207,43 @@ function LiveGame({ snapshot: loaderData }: { snapshot: Snapshot }) {
       </div>
       {connection === "sign-in" && <p role="alert">Your session may have expired. <a className="underline" href={`/login?next=${encodeURIComponent(`/games/${game.id}`)}`}>Sign in to reconnect</a>.</p>}
       {game.status === "aborted" && <p role="alert" className="rounded-lg border border-amber-400 p-4">{abortMessage(game.abortReason, game.spendLimitUsd ?? null)} No winner was declared.</p>}
+      {game.status === "running" && (
+        <section aria-label="Role visibility" className="flex flex-col gap-2 rounded-lg border border-gray-300 p-4 dark:border-gray-700">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="text-sm font-semibold">Spectator role visibility</span>
+            <div role="group" aria-label="Role visibility mode" className="inline-flex rounded-lg border border-gray-300 p-0.5 text-sm dark:border-gray-700">
+              <button
+                type="button"
+                aria-pressed={!visibility.showRoles}
+                onClick={onHideRoles}
+                className={`rounded-md px-3 py-1 font-medium ${!visibility.showRoles ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900" : "text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"}`}
+              >
+                Hidden
+              </button>
+              <button
+                type="button"
+                aria-pressed={visibility.showRoles}
+                disabled={loadingRoles}
+                onClick={onShowRoles}
+                className={`rounded-md px-3 py-1 font-medium disabled:opacity-50 ${visibility.showRoles ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900" : "text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"}`}
+              >
+                {loadingRoles ? "Loading roles…" : "Shown"}
+              </button>
+            </div>
+          </div>
+          <p className="text-xs text-gray-600 dark:text-gray-400">{roleVisibilityNote(visibility)}</p>
+          {revealError && <p role="alert" className="text-xs text-red-600 dark:text-red-400">{revealError}</p>}
+        </section>
+      )}
       <ul className="grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Players">
-        {game.players.map(player => <li key={player.id} className={`rounded-lg border border-gray-300 p-3 text-center dark:border-gray-700 ${!player.alive ? "opacity-60" : ""}`}>
-          <p className="font-semibold">{player.name}</p><p className="text-xs">{player.id} · {player.alive ? "Alive" : "Dead"}</p>
-          <SeatLabel model={player.model} persona={player.persona} />
-          <p className="mt-2 text-sm">{player.role || "Role hidden"}</p>
-        </li>)}
+        {game.players.map(player => {
+          const role = visibleRole(game, visibility, player);
+          return <li key={player.id} className={`rounded-lg border border-gray-300 p-3 text-center dark:border-gray-700 ${!player.alive ? "opacity-60" : ""}`}>
+            <p className="font-semibold">{player.name}</p><p className="text-xs">{player.id} · {player.alive ? "Alive" : "Dead"}</p>
+            <SeatLabel model={player.model} persona={player.persona} />
+            <p className={`mt-2 text-sm ${role ? "font-medium" : ""}`}>{role ?? "Role hidden"}</p>
+          </li>;
+        })}
       </ul>
       <section aria-label="Public transcript">
         <h2 className="mb-4 text-lg font-semibold">Village chronicle</h2>

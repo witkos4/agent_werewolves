@@ -124,7 +124,8 @@ export function createGame(id: string, discussionPasses: number, now: number, se
   };
 }
 
-export function publicGame(game: Game): PublicGame {
+export function publicGame(game: Game, options?: { revealRoles?: boolean }): PublicGame {
+  const showRoles = game.status === "finished" || options?.revealRoles === true;
   return {
     id: game.id, model: game.model, discussionPasses: game.discussionPasses,
     status: game.status, winner: game.winner, abortReason: game.abortReason,
@@ -132,7 +133,7 @@ export function publicGame(game: Game): PublicGame {
     createdAt: game.createdAt, deadlineAt: game.deadlineAt, spendLimitUsd: effectiveLimit(game), batchId: game.batchId ?? null,
     players: game.players.map(p => ({ id: p.id, name: p.name, alive: p.alive,
       model: seatModel(game, p), persona: personaName(seatPersona(game, p)),
-      ...(game.status === "finished" ? { role: p.role } : {}) })),
+      ...(showRoles ? { role: p.role } : {}) })),
   };
 }
 

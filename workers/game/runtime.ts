@@ -87,11 +87,11 @@ export class LiveGame {
     return row ? JSON.parse(row.state) as Game : null;
   }
 
-  snapshot(): Snapshot | null {
+  snapshot(options?: { revealRoles?: boolean }): Snapshot | null {
     const game = this.read();
     if (!game) return null;
     const seq = this.ctx.storage.sql.exec<{ seq: number }>("SELECT COALESCE(MAX(seq), 0) AS seq FROM events").one().seq;
-    return { seq, game: publicGame(game) };
+    return { seq, game: publicGame(game, options) };
   }
 
   /**
