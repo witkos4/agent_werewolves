@@ -290,7 +290,10 @@ function GameRecordView({ record, archived }: { record: GameRecord; archived: bo
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-6 py-10">
       <header className="flex items-center justify-between gap-4">
-        <Link to="/" className="text-sm underline">Agent Werewolves</Link>
+        <div className="flex items-center gap-4">
+          <Link to="/" className="text-sm underline">Agent Werewolves</Link>
+          <Link to="/archive" className="text-sm underline">Archive</Link>
+        </div>
         <span role="status" className={`text-sm ${archived ? "text-gray-600 dark:text-gray-400" : "text-amber-700 dark:text-amber-400"}`}>{archived ? "Archived" : "Archiving…"}</span>
       </header>
       <div>
