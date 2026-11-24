@@ -105,6 +105,10 @@ describe("archive filter parsing", () => {
     expect(invalid).toEqual({ filter: {}, page: 1 });
     expect(hasActiveArchiveFilters(invalid.filter)).toBe(false);
     expect(buildArchiveSearchParams(invalid.filter)).toBe("");
+
+    for (const oversized of ["999999999999999999999", String(Number.MAX_SAFE_INTEGER), "1e21", "42949673", "-5", "1.5"]) {
+      expect(parseArchiveQuery(new URLSearchParams(`page=${oversized}`)).page).toBe(1);
+    }
   });
 });
 
@@ -271,5 +275,15 @@ describe("archive browse and filter queries", () => {
     const clamped = await listArchivedGames(env.ARCHIVE, WINDOW, { page: 99, pageSize: 2 });
     expect(clamped).toMatchObject({ total: 5, page: 3, pageSize: 2, totalPages: 3 });
     expect(clamped.games.map(g => g.id)).toEqual([ids.villageAlphaWolfBetaSeer]);
+
+    // Oversized page values (beyond JS safe integer or SQLite integer offset) clamp safely instead of failing in SQLite.
+    for (const oversized of [999999999999999999999, Number.MAX_SAFE_INTEGER]) {
+      const safe = await listArchivedGames(env.ARCHIVE, WINDOW, { page: oversized, pageSize: 2 });
+      expect(safe).toMatchObject({ total: 5, page: 3, pageSize: 2, totalPages: 3 });
+      expect(safe.games.map(g => g.id)).toEqual([ids.villageAlphaWolfBetaSeer]);
+    }
+
+    const emptyOversized = await listArchivedGames(env.ARCHIVE, { from: "2024-06-12", to: "2024-06-12" }, { page: 999999999999999999999 });
+    expect(emptyOversized).toMatchObject({ total: 0, page: 1, totalPages: 1, games: [] });
   });
 });

@@ -53,7 +53,11 @@ export type ArchivePage = {
 
 const DAY_MS = 86_400_000;
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const POSITIVE_INT = /^[1-9]\d*$/;
 const OUTCOME_SET = new Set<string>(ARCHIVE_OUTCOMES);
+const MAX_ARCHIVE_PAGE_SIZE = 50;
+// Keeps `(page - 1) * pageSize` within signed 32-bit integer range (and JS safe integers / SQLite INTEGER).
+const MAX_SAFE_ARCHIVE_PAGE = Math.floor(2_147_483_647 / MAX_ARCHIVE_PAGE_SIZE);
 
 /** Parses a `YYYY-MM-DD` UTC calendar date to epoch ms at 00:00:00.000Z, or null if invalid. */
 export function parseUtcDateStart(value: string): number | null {
@@ -82,8 +86,9 @@ export function parseArchiveQuery(params: URLSearchParams): { filter: ArchiveFil
   const from = parseUtcDateStart(rawFrom) !== null ? rawFrom : undefined;
   const rawTo = params.get("to")?.trim() ?? "";
   const to = parseUtcDateStart(rawTo) !== null ? rawTo : undefined;
-  const rawPage = Number(params.get("page"));
-  const page = Number.isInteger(rawPage) && rawPage >= 1 ? rawPage : 1;
+  const rawPage = params.get("page")?.trim() ?? "";
+  const parsedPage = POSITIVE_INT.test(rawPage) ? Number(rawPage) : NaN;
+  const page = Number.isSafeInteger(parsedPage) && parsedPage <= MAX_SAFE_ARCHIVE_PAGE ? parsedPage : 1;
   return {
     filter: {
       ...(model ? { model } : {}),
@@ -191,8 +196,13 @@ export async function listArchivedGames(
   filter: ArchiveFilter = {},
   options: { page?: number; pageSize?: number } = {},
 ): Promise<ArchivePage> {
-  const pageSize = Math.min(Math.max(1, Math.trunc(options.pageSize ?? ARCHIVE_PAGE_SIZE)), 50);
-  let page = Math.max(1, Math.trunc(options.page ?? 1));
+  const rawPageSize = options.pageSize ?? ARCHIVE_PAGE_SIZE;
+  const pageSize = Number.isFinite(rawPageSize)
+    ? Math.min(Math.max(1, Math.trunc(rawPageSize)), MAX_ARCHIVE_PAGE_SIZE)
+    : ARCHIVE_PAGE_SIZE;
+  const rawPage = options.page ?? 1;
+  let page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.trunc(rawPage) : 1;
+  const safeOffset = Number.isSafeInteger(page) && page <= MAX_SAFE_ARCHIVE_PAGE ? (page - 1) * pageSize : null;
 
   const clauses: string[] = [];
   const binds: (string | number)[] = [];
@@ -237,19 +247,39 @@ export async function listArchivedGames(
      ORDER BY g.ended_at DESC, g.id ASC
      LIMIT ? OFFSET ?`;
 
-  const [countRes, gamesRes, modelsRes, rolesRes] = await db.batch([
-    db.prepare(`SELECT COUNT(*) AS total FROM games g ${where}`).bind(...binds),
-    db.prepare(selectGamesSql).bind(...binds, pageSize, (page - 1) * pageSize),
-    db.prepare("SELECT DISTINCT model FROM game_players ORDER BY model"),
-    db.prepare("SELECT DISTINCT role FROM game_players ORDER BY role"),
-  ]);
+  let total: number;
+  let gameRows: ArchiveGameDbRow[];
+  let modelsRes: D1Result;
+  let rolesRes: D1Result;
 
-  const total = (countRes.results as { total: number }[])[0]?.total ?? 0;
+  if (safeOffset !== null) {
+    const [countRes, gamesRes, mRes, rRes] = await db.batch([
+      db.prepare(`SELECT COUNT(*) AS total FROM games g ${where}`).bind(...binds),
+      db.prepare(selectGamesSql).bind(...binds, pageSize, safeOffset),
+      db.prepare("SELECT DISTINCT model FROM game_players ORDER BY model"),
+      db.prepare("SELECT DISTINCT role FROM game_players ORDER BY role"),
+    ]);
+    total = (countRes.results as { total: number }[])[0]?.total ?? 0;
+    gameRows = gamesRes.results as ArchiveGameDbRow[];
+    modelsRes = mRes;
+    rolesRes = rRes;
+  } else {
+    const [countRes, mRes, rRes] = await db.batch([
+      db.prepare(`SELECT COUNT(*) AS total FROM games g ${where}`).bind(...binds),
+      db.prepare("SELECT DISTINCT model FROM game_players ORDER BY model"),
+      db.prepare("SELECT DISTINCT role FROM game_players ORDER BY role"),
+    ]);
+    total = (countRes.results as { total: number }[])[0]?.total ?? 0;
+    gameRows = [];
+    modelsRes = mRes;
+    rolesRes = rRes;
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  let gameRows = gamesRes.results as ArchiveGameDbRow[];
-
-  if (total > 0 && page > totalPages) {
-    page = totalPages;
+  if (total === 0) {
+    page = 1;
+  } else if (safeOffset === null || page > totalPages) {
+    page = Math.min(page, totalPages);
     const retry = await db.prepare(selectGamesSql).bind(...binds, pageSize, (page - 1) * pageSize).all<ArchiveGameDbRow>();
     gameRows = retry.results;
   }

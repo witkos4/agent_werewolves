@@ -170,6 +170,20 @@ describe("archive browse route", () => {
     expect(data.archive!.total).toBeGreaterThanOrEqual(2);
   });
 
+  it("handles oversized page query values on a populated archive without failing", async () => {
+    for (const page of ["999999999999999999999", String(Number.MAX_SAFE_INTEGER), "1e21"]) {
+      const path = `/archive?from=2024-07-01&to=2024-07-31&page=${encodeURIComponent(page)}`;
+      const data = await loadArchive(path);
+      expect(data.error).toBe(false);
+      expect(data.archive).not.toBeNull();
+      expect(data.archive!.page).toBe(1);
+      expect(data.archive!.games.map(g => g.id)).toEqual([abortedGameId, villageGameId]);
+      const html = await renderArchive(path, data);
+      expect(html).not.toContain("Archive unavailable.");
+      expect(html).toContain(`href="/games/${villageGameId}"`);
+    }
+  });
+
   it("renders an error notice instead of throwing when the archive is unavailable", async () => {
     const broken = { ...env, ARCHIVE: { batch() { throw new Error("D1 down"); }, prepare() { throw new Error("D1 down"); } } } as unknown as Env;
     const data = await loadArchive("/archive?outcome=village", broken);
