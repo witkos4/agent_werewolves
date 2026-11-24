@@ -1,3 +1,5 @@
+import { isBearerAuthenticated } from "../../app/access.server";
+import { ROLE_REVEAL_HEADER } from "../../app/spectator-roles";
 import { parseSpendLimit } from "./engine";
 import { parseSetup } from "./setup";
 
@@ -6,6 +8,30 @@ export function liveRoom(env: Env, id: string) {
   return env.GAME_ROOM.get(env.GAME_ROOM.idFromName(`live:${id.toLowerCase()}`));
 }
 export function validGameId(id: string) { return UUID.test(id); }
+
+/** Explicit opt-in query parameter for live spectator role reveal. Fails closed to hidden. */
+export function wantsRevealedRoles(url: URL): boolean {
+  return url.searchParams.get("roles") === "shown";
+}
+
+/**
+ * Authorizes live role disclosure on GET /api/games/:id.
+ * - Bearer-authenticated scripts may opt in with `?roles=shown`.
+ * - Cookie-authenticated browser requests must come from the live Shown control
+ *   (same-origin request with `X-Spectator-Role-Reveal: shown`, never navigation).
+ */
+export async function wantsRevealedSnapshot(request: Request, env: Env): Promise<boolean> {
+  const url = new URL(request.url);
+  if (!wantsRevealedRoles(url)) return false;
+  if (await isBearerAuthenticated(request, env)) return true;
+  if (request.headers.get(ROLE_REVEAL_HEADER) !== "shown") return false;
+  if (request.headers.get("Sec-Fetch-Mode") === "navigate") return false;
+  const origin = request.headers.get("Origin");
+  if (origin !== null && origin !== url.origin) return false;
+  const fetchSite = request.headers.get("Sec-Fetch-Site");
+  if (fetchSite !== null && fetchSite !== "same-origin") return false;
+  return true;
+}
 
 /** Called only after the access gate, in both production and the test entry. */
 export async function handleGameRequest(request: Request, env: Env): Promise<Response | null> {
@@ -39,7 +65,7 @@ export async function handleGameRequest(request: Request, env: Env): Promise<Res
   if (validGameId(parts[0]) && request.method === "GET") {
     const room = liveRoom(env, parts[0]);
     if (parts.length === 1) {
-      const snapshot = await room.getLiveSnapshot();
+      const snapshot = await room.getLiveSnapshot({ revealRoles: await wantsRevealedSnapshot(request, env) });
       return snapshot ? Response.json(snapshot, { headers: { "Cache-Control": "no-store" } }) : notFound();
     }
     if (parts.length === 2 && parts[1] === "ws") return room.fetch(request);

@@ -96,6 +96,15 @@ export function sanitizeNext(raw: string | null | undefined): string {
   return url.pathname + url.search + url.hash;
 }
 
+/** True only when the request presents a valid `Authorization: Bearer <key>` credential. */
+export async function isBearerAuthenticated(request: Request, env: Env): Promise<boolean> {
+  const key = configuredKey(env);
+  if (!key) return false;
+
+  const bearer = /^Bearer\s+(.+)$/i.exec(request.headers.get("Authorization") ?? "");
+  return bearer ? keyMatches(bearer[1], key) : false;
+}
+
 /** True for a valid session cookie or `Authorization: Bearer <key>`. */
 export async function isAuthenticated(request: Request, env: Env, now: number): Promise<boolean> {
   const key = configuredKey(env);
@@ -104,8 +113,7 @@ export async function isAuthenticated(request: Request, env: Env, now: number): 
   const session = readSessionCookie(request);
   if (session && (await verifySession(session, key, now))) return true;
 
-  const bearer = /^Bearer\s+(.+)$/i.exec(request.headers.get("Authorization") ?? "");
-  return bearer ? keyMatches(bearer[1], key) : false;
+  return isBearerAuthenticated(request, env);
 }
 
 function sessionData(exp: number): Uint8Array<ArrayBuffer> {
