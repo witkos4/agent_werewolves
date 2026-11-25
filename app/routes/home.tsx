@@ -105,7 +105,8 @@ function StartForm({ loaderData, actionData, pending }: StartFormProps) {
   const [current, setCurrent] = useState({ setup, passes: actionData?.discussionPasses ?? 1, limit: Number(initialLimit) });
   const onChange = (event: FormEvent<HTMLFormElement>) => {
     const form = new FormData(event.currentTarget);
-    setCurrent({ setup: setupFromForm(form), passes: Number(form.get("discussionPasses")), limit: Number(form.get("spendLimitUsd")) });
+    const rawLimit = String(form.get("spendLimitUsd") ?? "").trim();
+    setCurrent({ setup: setupFromForm(form), passes: Number(form.get("discussionPasses")), limit: rawLimit === "" ? loaderData.spendLimit.default : Number(rawLimit) });
   };
   const { min, max } = loaderData.spendLimit;
   return (
