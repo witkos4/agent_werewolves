@@ -108,7 +108,10 @@ export default function MetricsPage({ loaderData }: Route.ComponentProps) {
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-8 p-6">
       <div className="flex flex-col gap-2">
-        <Link to="/" className={`text-sm ${muted} hover:underline`}>← Agent Werewolves</Link>
+        <div className="flex items-center gap-4 text-sm">
+          <Link to="/" className={`${muted} hover:underline`}>← Agent Werewolves</Link>
+          <Link to="/archive" className={`${muted} hover:underline`}>Archive</Link>
+        </div>
         <h1 className="text-3xl font-bold tracking-tight">Metrics</h1>
         <p className={muted}>How each model plays, from the archive. Every figure shows what it is based on; small counts mean little.</p>
       </div>
