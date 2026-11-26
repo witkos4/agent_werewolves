@@ -37,9 +37,10 @@ async function unsafePricing(models: string[]): Promise<string | null> {
 function safePrices(prices: Record<string, string> | undefined): boolean {
   if (!prices) return false;
   const input = Number(prices.prompt), output = Number(prices.completion);
+  const reasoning = prices.internal_reasoning ? Number(prices.internal_reasoning) : 0;
   return Number.isFinite(input) && input > 0 && input <= INPUT_RATE_CEILING &&
     Number.isFinite(output) && output > 0 && output <= OUTPUT_RATE_CEILING &&
-    (!prices.internal_reasoning || Number(prices.internal_reasoning) <= OUTPUT_RATE_CEILING) &&
+    Number.isFinite(reasoning) && reasoning >= 0 && reasoning <= OUTPUT_RATE_CEILING &&
     (!prices.request || Number(prices.request) === 0);
 }
 

@@ -254,7 +254,7 @@ The estimate inputs are two GROUP BY queries over `games` and `game_moves ⋈ ga
 
 #### Manual
 
-- [ ] 3.5 Dev form estimate and a budget abort work (server-rendered estimate and warning checked 99d4660; live recompute in a browser and a dev budget abort not yet run)
+- [ ] 3.5 Dev form estimate and a budget abort work (server-rendered estimate checked 99d4660; live browser estimate recompute and over-limit warning verified locally with synthetic D1 on 2026-11-24; manual dev budget-abort drill with a stub or real key not yet run)
 
 ### Phase 4: Production rollout and check
 
