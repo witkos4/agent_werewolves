@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { agentView, applyMove, buildRequest, createGame, deaths, MODEL, publicGame, rolesFor, validateMove, type Game } from "../workers/game/engine";
 import { MODELS } from "../workers/game/catalog";
-import type { GameSetup } from "../workers/game/setup";
+import { defaultSetup, SEAT_COUNTS, type GameSetup } from "../workers/game/setup";
 
 // No swaps: p1 wolf, p2 Seer, p3 wolf, p4–p8 villagers.
 const setup = (passes = 1) => createGame("test-game", passes, 100, undefined, length => length - 1);
@@ -29,8 +29,53 @@ describe("Werewolf rules and information boundaries", () => {
       ["p1", "Ada", "Werewolf"], ["p2", "Bram", "Seer"], ["p3", "Cora", "Werewolf"], ["p4", "Dax", "Villager"],
       ["p5", "Esme", "Villager"], ["p6", "Finn", "Villager"], ["p7", "Gwen", "Villager"], ["p8", "Hugo", "Villager"],
     ]);
-    expect([5, 6, 8, 9].map(n => rolesFor(n).filter(r => r === "Werewolf").length)).toEqual([1, 2, 2, 3]);
+    expect(SEAT_COUNTS.map(n => rolesFor(n).filter(r => r === "Werewolf").length)).toEqual([1, 2, 2, 2, 3]);
     for (let i = 0; i < 20; i++) expect(createGame("g", 1, 100).players.filter(p => p.role === "Werewolf")).toHaveLength(2);
+  });
+
+  it("creates valid balanced games for every supported table size from 5 to 9 and rejects out-of-range sizes", () => {
+    const expected: Record<number, { wolves: number; seer: number; villagers: number }> = {
+      5: { wolves: 1, seer: 1, villagers: 3 },
+      6: { wolves: 2, seer: 1, villagers: 3 },
+      7: { wolves: 2, seer: 1, villagers: 4 },
+      8: { wolves: 2, seer: 1, villagers: 5 },
+      9: { wolves: 3, seer: 1, villagers: 5 },
+    };
+    for (const count of SEAT_COUNTS) {
+      const game = createGame(`size-${count}`, 1, 100, defaultSetup(count), length => length - 1);
+      expect(game.players).toHaveLength(count);
+      expect(game.players.every(p => Boolean(p.name) && Boolean(p.model) && Boolean(p.persona))).toBe(true);
+      expect(new Set(game.players.map(p => p.persona)).size).toBe(count);
+      expect(game.players.filter(p => p.role === "Werewolf")).toHaveLength(expected[count].wolves);
+      expect(game.players.filter(p => p.role === "Seer")).toHaveLength(expected[count].seer);
+      expect(game.players.filter(p => p.role === "Villager")).toHaveLength(expected[count].villagers);
+    }
+
+    // 5-seat game: single wolf night kill (no teammates) then Day 1 village win.
+    let five = createGame("five", 1, 100, defaultSetup(5), length => length - 1);
+    five = target(five, "p1"); // Seer
+    expect(agentView(five)).toMatchObject({ actor: { id: "p1", role: "Werewolf" }, teammates: [], teamKillVotes: {} });
+    five = discussion(target(five, "p5"));
+    five = voteOut(five, "p1", "p3");
+    expect(five).toMatchObject({ status: "finished", winner: "Village" });
+
+    // 9-seat game: three wolves coordinate kill votes (p1 -> p8, p3 -> p9, p4 -> p9 => p9 dies).
+    let nine = createGame("nine", 1, 100, defaultSetup(9), length => length - 1);
+    expect(nine.players.at(-1)).toMatchObject({ id: "p9", name: "Iris", role: "Villager" });
+    nine = target(nine, "p1"); // Seer
+    expect(nine.queue).toEqual(["p1", "p3", "p4"]);
+    expect(agentView(nine).teammates).toEqual(["p3", "p4"]);
+    nine = target(nine, "p8");
+    expect(agentView(nine)).toMatchObject({ actor: { id: "p3" }, teamKillVotes: { p1: "p8" } });
+    nine = target(nine, "p9");
+    expect(agentView(nine)).toMatchObject({ actor: { id: "p4" }, teamKillVotes: { p1: "p8", p3: "p9" } });
+    nine = target(nine, "p9");
+    expect(nine.players.filter(p => !p.alive).map(p => p.id)).toEqual(["p9"]);
+    expect(nine).toMatchObject({ status: "running", phase: "discuss" });
+
+    for (const invalid of [0, 2, 10]) {
+      expect(() => createGame("bad", 1, 100, { seats: Array.from({ length: invalid }, () => ({ model: MODELS[0].id, persona: "random" })), pool: [] })).toThrow(RangeError);
+    }
   });
 
   it("runs night, bounded discussion and simultaneous votes to a village win", () => {

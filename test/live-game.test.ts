@@ -7,8 +7,8 @@ import { attemptAllowance, buildRequest, type Game } from "../workers/game/engin
 import { liveRoom, handleGameRequest } from "../workers/game/routes";
 import { archiveTuning, liveTuning } from "../workers/game/runtime";
 import { setLlmCall, type LlmCall } from "../workers/llm/client";
-import { MODELS } from "../workers/game/catalog";
-import { DEFAULT_SETUP, SEAT_COUNT, type GameSetup } from "../workers/game/setup";
+import { MODELS, PERSONAS } from "../workers/game/catalog";
+import { DEFAULT_SETUP, defaultSetup, roleCounts, SEAT_COUNT, SEAT_COUNTS, type GameSetup } from "../workers/game/setup";
 import { catalog } from "./live-helpers";
 
 const defaults = { ...liveTuning };
@@ -425,14 +425,83 @@ describe("durable live games", () => {
   });
 
   it("rejects an invalid setup before touching the room", async () => {
-    const id = crypto.randomUUID(), room = liveRoom(env, id);
-    expect(await room.startLive(id, 1, { seats: [], pool: [] })).toMatchObject({ ok: false, status: 400 });
-    const response = await handleGameRequest(new Request("https://example.test/api/games/start", {
-      method: "POST", body: JSON.stringify({ requestId: id, discussionPasses: 1, setup: { seats: [], pool: [] } }),
+    for (const count of [0, 1, 4, 10, 12]) {
+      const id = crypto.randomUUID(), room = liveRoom(env, id);
+      const invalidSetup = { seats: Array.from({ length: count }, () => ({ model: MODELS[0].id, persona: "random" })), pool: [] };
+      expect(await room.startLive(id, 1, invalidSetup)).toMatchObject({ ok: false, status: 400, error: "Configure between 5 and 9 seats." });
+      const response = await handleGameRequest(new Request("https://example.test/api/games/start", {
+        method: "POST", body: JSON.stringify({ requestId: id, discussionPasses: 1, setup: invalidSetup }),
+      }), env);
+      expect(response?.status).toBe(400);
+      expect(await response?.json()).toEqual({ error: "Configure between 5 and 9 seats." });
+      expect(await room.getLiveSnapshot()).toBeNull();
+    }
+
+    for (const badCount of [0, 4, 10, -1, 5.5, "6", null]) {
+      const id = crypto.randomUUID(), room = liveRoom(env, id);
+      const response = await handleGameRequest(new Request("https://example.test/api/games/start", {
+        method: "POST", body: JSON.stringify({ requestId: id, discussionPasses: 1, seatCount: badCount }),
+      }), env);
+      expect(response?.status).toBe(400);
+      expect(await response?.json()).toEqual({ error: "Configure between 5 and 9 seats." });
+      expect(await room.getLiveSnapshot()).toBeNull();
+    }
+
+    const mismatchId = crypto.randomUUID();
+    const mismatch = await handleGameRequest(new Request("https://example.test/api/games/start", {
+      method: "POST", body: JSON.stringify({ requestId: mismatchId, discussionPasses: 1, seatCount: 6, setup: defaultSetup(7) }),
     }), env);
-    expect(response?.status).toBe(400);
-    expect(await response?.json()).toEqual({ error: "Configure exactly 8 seats." });
-    expect(await room.getLiveSnapshot()).toBeNull();
+    expect(mismatch?.status).toBe(400);
+    expect(await mismatch?.json()).toEqual({ error: "Seat count must match the number of configured seats." });
+    expect(await liveRoom(env, mismatchId).getLiveSnapshot()).toBeNull();
+  });
+
+  it("starts and finishes games for every supported seat count from 5 through 9 with balanced roles", async () => {
+    for (const count of SEAT_COUNTS) {
+      const id = crypto.randomUUID();
+      const setup: GameSetup = {
+        seats: Array.from({ length: count }, (_, i) => ({
+          model: i === count - 1 ? "random" : MODELS[i % MODELS.length].id,
+          persona: i === 0 ? PERSONAS[0].id : "random",
+        })),
+        pool: [MODELS[5].id],
+      };
+      const response = await handleGameRequest(new Request("https://example.test/api/games/start", {
+        method: "POST",
+        body: JSON.stringify({ requestId: id, discussionPasses: 1, seatCount: count, setup }),
+      }), env);
+      expect(response?.status).toBe(200);
+      const room = liveRoom(env, id);
+      const { game } = await inspect(room);
+      const expected = roleCounts(count);
+      expect(game.players).toHaveLength(count);
+      expect(game.players.filter(p => p.role === "Werewolf")).toHaveLength(expected.wolves);
+      expect(game.players.filter(p => p.role === "Seer")).toHaveLength(expected.seer);
+      expect(game.players.filter(p => p.role === "Villager")).toHaveLength(expected.villagers);
+      expect(game.players[0].persona).toBe(PERSONAS[0].id);
+      expect(game.players.at(-1)!.model).toBe(MODELS[5].id);
+      expect(new Set(game.players.map(p => p.persona)).size).toBe(count);
+
+      await playLegally(room, 0.0001);
+      const finished = await runToEnd(room, 1);
+      expect(finished).toMatchObject({ status: "finished", winner: "Village" });
+    }
+
+    // seatCount without setup starts a default-random game of that size and preserves idempotency.
+    const id = crypto.randomUUID();
+    const startSix = () => handleGameRequest(new Request("https://example.test/api/games/start", {
+      method: "POST", body: JSON.stringify({ requestId: id, discussionPasses: 1, seatCount: 6 }),
+    }), env);
+    expect((await startSix())?.status).toBe(200);
+    expect((await startSix())?.status).toBe(200);
+    expect((await handleGameRequest(new Request("https://example.test/api/games/start", {
+      method: "POST", body: JSON.stringify({ requestId: id, discussionPasses: 1, seatCount: 7 }),
+    }), env))?.status).toBe(409);
+    const { game } = await inspect(liveRoom(env, id));
+    expect(game.players).toHaveLength(6);
+    expect(game.players.filter(p => p.role === "Werewolf")).toHaveLength(2);
+    expect(game.players.filter(p => p.role === "Seer")).toHaveLength(1);
+    expect(game.players.filter(p => p.role === "Villager")).toHaveLength(3);
   });
 
   it("keeps accepting a setup-less repeat for a version-1 room", async () => {

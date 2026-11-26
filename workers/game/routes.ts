@@ -1,7 +1,7 @@
 import { isBearerAuthenticated } from "../../app/access.server";
 import { ROLE_REVEAL_HEADER } from "../../app/spectator-roles";
 import { parseSpendLimit } from "./engine";
-import { parseSetup } from "./setup";
+import { defaultSetup, isValidSeatCount, parseSetup, SEAT_COUNT_MAX, SEAT_COUNT_MIN, type GameSetup } from "./setup";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function liveRoom(env: Env, id: string) {
@@ -49,12 +49,24 @@ export async function handleGameRequest(request: Request, env: Env): Promise<Res
       if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error();
       options = value as Record<string, unknown>;
     } catch { return Response.json({ error: "Expected a JSON object." }, { status: 400 }); }
-    if (typeof options.requestId !== "string" || !validGameId(options.requestId) || ![1, 2].includes(options.discussionPasses as number) || Object.keys(options).some(k => !["requestId", "discussionPasses", "setup", "spendLimitUsd"].includes(k))) {
+    if (typeof options.requestId !== "string" || !validGameId(options.requestId) || ![1, 2].includes(options.discussionPasses as number) || Object.keys(options).some(k => !["requestId", "discussionPasses", "seatCount", "setup", "spendLimitUsd"].includes(k))) {
       return Response.json({ error: "Provide a request UUID and one or two discussion passes." }, { status: 400 });
     }
-    // Omitted means the default setup; the room still needs to know it was omitted (idempotency).
-    const setup = options.setup === undefined ? undefined : parseSetup(options.setup);
-    if (setup && "error" in setup) return Response.json({ error: setup.error }, { status: 400 });
+    if (options.seatCount !== undefined && !isValidSeatCount(options.seatCount)) {
+      return Response.json({ error: `Configure between ${SEAT_COUNT_MIN} and ${SEAT_COUNT_MAX} seats.` }, { status: 400 });
+    }
+    // Omitted setup and seatCount means the default setup; the room still needs to know it was omitted (idempotency).
+    let setup: GameSetup | undefined;
+    if (options.setup !== undefined) {
+      const parsed = parseSetup(options.setup);
+      if ("error" in parsed) return Response.json({ error: parsed.error }, { status: 400 });
+      if (options.seatCount !== undefined && parsed.seats.length !== options.seatCount) {
+        return Response.json({ error: "Seat count must match the number of configured seats." }, { status: 400 });
+      }
+      setup = parsed;
+    } else if (options.seatCount !== undefined) {
+      setup = defaultSetup(options.seatCount);
+    }
     const limit = parseSpendLimit(options.spendLimitUsd);
     if (typeof limit === "object") return Response.json({ error: limit.error }, { status: 400 });
     const id = options.requestId.toLowerCase();
